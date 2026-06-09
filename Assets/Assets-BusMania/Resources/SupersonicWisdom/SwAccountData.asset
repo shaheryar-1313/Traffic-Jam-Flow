@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0bde5b51eef6a4560b2a2442b047a9a7, type: 3}
+  m_Name: SwAccountData
+  m_EditorClassIdentifier: 
+  titlesList:
+  - games: []
+    id: 
+    name: --- select ---
+    unityProjectId: 
+  - games:
+    - adMobId: 
+      bundleId: com.younickgames.valetpark3d
+      facebookAppId: 3973474389603345
+      facebookToken: 7688b179fd866a924fa719cc57ef220b
+      gameAnalyticsKey: 7ab6ca837c52729778ed09e3fe329541
+      gameAnalyticsSecret: 2c37604907205b458fda9a5f766980f7bfca2596
+      id: 9ce02cef-f2b9-4bae-99a8-61e8b6da02dc
+      isAppKey: 
+      os: android
+      platform: google_play
+      storeId: com.younickgames.valetpark3d
+    id: f8382864-2d09-4464-8ead-5f4051b5ba94
+    name: Valet park 3D
+    unityProjectId: 
+  integrationGuideUrl: https://support.supersonic.com/hc/en-us/categories/6850416307485-SDK-integration
