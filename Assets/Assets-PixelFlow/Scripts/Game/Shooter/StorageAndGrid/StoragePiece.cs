@@ -1,29 +1,30 @@
-﻿using System;
+using TJ.Scripts;
 using UnityEngine;
 
 namespace Game
 {
     public class StoragePiece : GridPiece
     {
-        public Shooter AssignedShooter { get; private set; }
+        public Vehicle AssignedVehicle { get; private set; }
 
-
-        public void Assign(Shooter shooter)
+        /// <summary>Assigns a vehicle to occupy this storage slot.</summary>
+        public void Assign(Vehicle vehicle)
         {
-            AssignedShooter = shooter;
+            AssignedVehicle = vehicle;
         }
 
         private void OnDestroy()
         {
-            AssignedShooter = null;
+            AssignedVehicle = null;
         }
 
+        /// <summary>Clears the slot without touching the vehicle's state.</summary>
         public void Unassign()
         {
-            if (AssignedShooter == null)
+            if (AssignedVehicle == null)
                 return;
 
-            AssignedShooter = null;
+            AssignedVehicle = null;
         }
     }
 }

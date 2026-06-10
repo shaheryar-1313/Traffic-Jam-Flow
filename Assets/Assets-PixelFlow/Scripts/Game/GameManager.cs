@@ -8,7 +8,7 @@ namespace Game
     {
         [Title("References")]
         [SerializeField] private GameConfigs _gameConfigs;
-        [SerializeField] private ShooterVisualsConfigs _shooterVisualsConfigs;
+        // [SerializeField] private ShooterVisualsConfigs _shooterVisualsConfigs;
         [SerializeField] private GameplayController _gameplayController;
         [SerializeField] private RemoteConfigManager _remoteConfigManager;
 
@@ -29,17 +29,20 @@ namespace Game
             EventBus<GameplayStateChangedEvent>.Subscribe(_gameplayStateChangedEventBinding);
 
             _gameConfigs.Initialize();
-            _shooterVisualsConfigs.Initialize();
+            // All Awake() phases have completed before Start() runs, so the Dreamteck
+            // SplineComputer has valid point data — Bounds and storage creation are safe here.
             _gameplayController.Initialize();
+            _gameplayController.Prepare();
 
             IsInitialized = true;
-            
+
             _remoteConfigManager.Initialize(OnRemoteConfigReady);
         }
 
         private void OnRemoteConfigReady()
         {
-            PrepareForLevel();
+            // Remote config values are now applied to GameConfigs.
+            // The game is already initialized and prepared — just confirm we're in Gameplay state.
             ChangeGameplayState(GameplayState.Gameplay);
         }
 

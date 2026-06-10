@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using DG.Tweening;
 using Dreamteck.Splines;
 using Sirenix.OdinInspector;
@@ -20,10 +20,21 @@ namespace Game
         {
             get
             {
+                // Prefer an explicit Renderer if one exists on the spline GameObject.
                 if (Spline.TryGetComponent(out Renderer splineRenderer))
                     return splineRenderer.bounds;
 
-                return null;
+                // Fall back to computing bounds from the SplineComputer's control points
+                // so the property works even when no Renderer is attached.
+                if (_spline == null || _spline.pointCount == 0)
+                    return null;
+
+                SplinePoint[] pts = _spline.GetPoints();
+                Bounds b = new Bounds(pts[0].position, Vector3.zero);
+                for (int i = 1; i < pts.Length; i++)
+                    b.Encapsulate(pts[i].position);
+
+                return b;
             }
         }
         public SplineComputer Spline => _spline;
@@ -34,7 +45,8 @@ namespace Game
 
         public void Awake()
         {
-            Prepare(5);
+            // Intentionally empty — initialization is driven by GameManager.Start()
+            // after all Awake() phases (including Dreamteck SplineComputer) have run.
         }
 
         public void Initialize()
@@ -53,8 +65,8 @@ namespace Game
             {
                 ConveyorFollowerBoard board = _allBoards[i];
 
-                if (board.AssignedShooter != null)
-                    board.AssignedShooter.ResetParent();
+                if (board.AssignedOccupant != null)
+                    board.AssignedOccupant.ResetParent();
 
                 DestroyImmediate(board.gameObject);
             }

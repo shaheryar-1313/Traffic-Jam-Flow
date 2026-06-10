@@ -1,5 +1,6 @@
-﻿using Sirenix.OdinInspector;
-using Unity.VisualScripting;
+using System.Collections.Generic;
+using Sirenix.OdinInspector;
+using TJ.Scripts;
 using UnityEngine;
 using Utilities.EventBus;
 
@@ -10,10 +11,6 @@ namespace Game
         [Title("References")]
         [SerializeField] private MainConveyor _mainConveyor;
         [SerializeField] private LevelManager _levelManager;
-
-        [SerializeField] private Shooter _shooterPrefab;
-        [SerializeField] private TargetObjectController _targetObjectController;
-        [SerializeField] private ShooterController _shooterController;
         [SerializeField] private GridAndStorageVisualizer _gridAndStorageVisualizer;
         [SerializeField] private ShooterStorageController _shooterStorageController;
 
@@ -23,29 +20,52 @@ namespace Game
         public int AvailableBoardCount => _mainConveyor.GetAvailableBoardCount();
 
         private GameplayState _gameplayState;
-        private float _lastShooterSentTime = 0f;
+        private readonly List<Vehicle> _currentlyMovingVehicles = new List<Vehicle>();
+
+        public void Awake()
+        {
+            // Only clean up event subscriptions here.
+            // Initialize() and Prepare() are driven by GameManager.Start()
+            // to guarantee all Awake() phases (including Dreamteck SplineComputer) have run.
+            CleanupMovingVehicles();
+        }
+
+        /// <summary>
+        /// Full reset: cleans up active vehicles then re-initializes and re-prepares.
+        /// Called externally (e.g. from a restart flow). Safe to call at any time after
+        /// the first Initialize() has run.
+        /// </summary>
+        public void resetGameplay()
+        {
+            CleanupMovingVehicles();
+            Initialize();
+            Prepare();
+        }
+
+        /// <summary>Unsubscribes all in-flight vehicle events and empties the tracking list.</summary>
+        private void CleanupMovingVehicles()
+        {
+            foreach (Vehicle vehicle in _currentlyMovingVehicles)
+            {
+                vehicle.OnCompletedPath -= Vehicle_OnCompletedPath;
+                vehicle.OnJumpToBoardCompleted -= Vehicle_OnJumpToBoardCompleted;
+            }
+            _currentlyMovingVehicles.Clear();
+        }
 
         public void Initialize()
         {
+            IsInitialized = false;
+            IsPrepared = false;
+
             _levelManager.Initialize();
             _mainConveyor.Initialize();
             Debug.Assert(_mainConveyor.Bounds.HasValue, "Main Conveyor Doesn't Have Bounds");
 
-            _shooterController.Initialize(_mainConveyor.Bounds.Value);
-            _targetObjectController.Initialize(_mainConveyor.Bounds.Value);
-
-            _gridAndStorageVisualizer.Initialize(_shooterController.ShooterGrid);
+            _gridAndStorageVisualizer.Initialize();
             _shooterStorageController.Initialize();
 
             ChangeGameplayState(GameplayState.Gameplay);
-
-            _shooterController.OnShooterJumpRequest += ShooterController_OnShooterJumpRequest;
-            _shooterController.OnShooterCompletedPath += ShooterController_OnShooterCompletedPath;
-            _shooterController.OnShooterDestroyed += ShooterController_OnShooterDestroyed;
-            _shooterController.OnAllShootersCompleted += ShooterController_OnAllShootersCompleted;
-            _shooterController.CantJumpDueToActiveBoardCount += ShooterController_CantJumpDueToActiveBoardCount;
-
-            _targetObjectController.OnAllTargetsDestroyed += TargetObjectController_OnAllTargetsDestroyed;
 
             IsInitialized = true;
         }
@@ -56,44 +76,20 @@ namespace Game
 
             _levelManager.Prepare();
             _mainConveyor.Prepare(_levelManager.CurrentLevelData.conveyorBoardCount);
-            _shooterController.Prepare();
-            _targetObjectController.Prepare();
 
-            _gridAndStorageVisualizer.Prepare(_shooterController.ShooterGrid);
-            _shooterStorageController.Prepare(_gridAndStorageVisualizer.StorageVisualPieces);
+            // Build the spatial grid used to position storage slots.
+            // Order matters: LevelManager must be prepared first to supply CurrentLevelData.
+            if (_mainConveyor.Bounds.HasValue)
+            {
+                GameGrid vehicleGrid = GridHelper.CreateShooterGrid(
+                    LevelManager.Instance.CurrentLevelData,
+                    _mainConveyor.Bounds.Value.min.z);
+
+                _gridAndStorageVisualizer.Prepare(vehicleGrid);
+                _shooterStorageController.Prepare(_gridAndStorageVisualizer.StorageVisualPieces);
+            }
 
             IsPrepared = true;
-        }
-
-        private void Update()
-        {
-            if (!IsInitialized)
-                return;
-
-            CheckTargetsForShooters();
-        }
-
-        private void CheckTargetsForShooters()
-        {
-            if (_shooterController.CurrentlyMovingShooters is not { Count: > 0 })
-                return;
-
-            for (int i = _shooterController.CurrentlyMovingShooters.Count - 1; i >= 0; i--)
-            {
-                Shooter shooter = _shooterController.CurrentlyMovingShooters[i];
-
-                if (!shooter.IsReadyForSearchForTarget)
-                    continue;
-
-                if (!_targetObjectController.TryFindTargetForShooter(shooter, out var targetObjects, out var side))
-                    continue;
-
-                foreach (TargetObject targetObject in targetObjects)
-                {
-                    if (_shooterController.TryShootForTarget(shooter, targetObject, side))
-                        targetObject.MarketForHit();
-                }
-            }
         }
 
         public void ChangeGameplayState(GameplayState newState)
@@ -110,93 +106,77 @@ namespace Game
             Debug.Log("Gameplay state changed to " + newState);
         }
 
-        private void ShooterController_OnShooterCompletedPath(Shooter shooter)
-        {
-            _shooterController.RemoveMovingShooter(shooter);
+        // -------------------------------------------------------------------------
+        // Vehicle → Board flow
+        // -------------------------------------------------------------------------
 
-            if (shooter.IsBulletsExhausted)
-            {
-                _shooterController.RefreshJumpableVisuals();
-                return;
-            }
-
-            if (!_shooterStorageController.TryConsumeShooter(shooter))
-            {
-                Debug.Log("FAIL — Storage overflow");
-                shooter.SetInConveyor(false);
-                shooter.ResetParent();
-                ChangeGameplayState(GameplayState.Fail);
-            }
-            else
-            {
-                shooter.SetInConveyor(false);
-            }
-
-            _shooterController.RefreshJumpableVisuals();
-        }
-
-        private void ShooterController_OnShooterDestroyed(Shooter shooter)
-        {
-            _shooterController.RemoveMovingShooter(shooter);
-            _mainConveyor.ShooterDestroyed(shooter);
-            _shooterController.RefreshJumpableVisuals();
-        }
-
-        private void ShooterController_OnShooterJumpRequest(Shooter shooter, bool skipInterval)
+        /// <summary>
+        /// Requests an available conveyor board for a Vehicle and initiates the jump.
+        /// Gets a board, sends it onto the conveyor, calls Vehicle.JumpToBoard,
+        /// then starts the board moving once the jump animation lands.
+        /// </summary>
+        public void RequestBoardForVehicle(Vehicle vehicle)
         {
             if (!_mainConveyor.TryGetAvailableBoard(out ConveyorFollowerBoard board))
                 return;
 
-            if (!skipInterval && Time.time < (_lastShooterSentTime + GameConfigs.Instance.minShooterRequestInterval))
-                return;
-
-            _lastShooterSentTime = Time.time;
-
             _mainConveyor.BoardToConveyor(board);
-            _shooterController.AddMovingShooter(shooter);
+            _currentlyMovingVehicles.Add(vehicle);
 
-            shooter.OnJumpToBoardCompleted += Shooter_OnJumpToBoardCompleted;
-            shooter.JumpToBoard(board);
-
-            if (_shooterStorageController.IsShooterInStorage(shooter, out StoragePiece storage))
-            {
-                storage.Unassign();
-                _shooterStorageController.ArrangeStorageShooters();
-                _shooterController.RefreshJumpableVisuals();
-            }
-            else
-            {
-                _shooterController.ShooterJumpToConveyorFromLane(shooter);
-            }
+            vehicle.SetInStorage(false);
+            vehicle.OnCompletedPath += Vehicle_OnCompletedPath;
+            vehicle.OnJumpToBoardCompleted += Vehicle_OnJumpToBoardCompleted;
+            vehicle.JumpToBoard(board);
         }
 
-        private void Shooter_OnJumpToBoardCompleted(Shooter shooter, ConveyorFollowerBoard board)
+        private void Vehicle_OnJumpToBoardCompleted(Vehicle vehicle, ConveyorFollowerBoard board)
         {
-            shooter.OnJumpToBoardCompleted -= Shooter_OnJumpToBoardCompleted;
+            vehicle.OnJumpToBoardCompleted -= Vehicle_OnJumpToBoardCompleted;
             board.StartMove();
         }
 
-        private void TargetObjectController_OnAllTargetsDestroyed()
+        // -------------------------------------------------------------------------
+        // Vehicle → Storage flow (vehicle completes a conveyor run with empty seats)
+        // -------------------------------------------------------------------------
+
+        private void Vehicle_OnCompletedPath(Vehicle vehicle)
         {
-            Debug.Log("WIN");
-            ChangeGameplayState(GameplayState.Win);
+            vehicle.OnCompletedPath -= Vehicle_OnCompletedPath;
+            _currentlyMovingVehicles.Remove(vehicle);
+
+            if (!vehicle.HasEmptySeats)
+                return;
+
+            // Vehicle still has empty seats: send it to the grid visualizer storage box,
+            // just as a shooter with remaining bullets would be stored after its run.
+            if (!_shooterStorageController.TryConsumeVehicle(vehicle))
+            {
+                Debug.Log("FAIL — Vehicle storage overflow");
+                ChangeGameplayState(GameplayState.Fail);
+                return;
+            }
+
+            vehicle.SetInStorage(true);
+            vehicle.OnJumpRequest += Vehicle_OnJumpRequestFromStorage;
         }
 
-        private void ShooterController_OnAllShootersCompleted()
+        // -------------------------------------------------------------------------
+        // Storage → Board flow (player taps a stored vehicle)
+        // -------------------------------------------------------------------------
+
+        private void Vehicle_OnJumpRequestFromStorage(Vehicle vehicle)
         {
-            Debug.Log("AllShootersCompleted");
+            vehicle.OnJumpRequest -= Vehicle_OnJumpRequestFromStorage;
+
+            _shooterStorageController.ReleaseVehicle(vehicle);
+            _shooterStorageController.ArrangeStorageVehicles();
+
+            RequestBoardForVehicle(vehicle);
         }
 
-        private void ShooterController_CantJumpDueToActiveBoardCount()
-        {
-            _mainConveyor.PlayBoardCountWarning();
-        }
-        
         public void CHEAT_FinishGameplay(bool isSuccess)
         {
             ChangeGameplayState(isSuccess ? GameplayState.Win : GameplayState.Fail);
         }
-        
-
     }
 }

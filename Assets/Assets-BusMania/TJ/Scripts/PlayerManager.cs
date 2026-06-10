@@ -200,7 +200,7 @@ namespace TJ.Scripts
             isColormatched = false;
             if (_rout != null)
                 StopCoroutine(_rout);
-            _rout = StartCoroutine(GameManager.instance.CheckIfGameOver());
+            // _rout = StartCoroutine(GameManager.instance.CheckIfGameOver());
         }
 
 

@@ -24,12 +24,12 @@ namespace TJ.Scripts
             vehicles = GetComponentsInChildren<Vehicle>(true).ToList();
             foreach (var VARIABLE in vehicles)
             {
-                VARIABLE.garage = this;
+                // VARIABLE.garage = this;
             }
 
             foreach (var VARIABLE in obstacle)
             {
-                VARIABLE.garage = this;
+                // VARIABLE.garage = this;
             }
         }
 

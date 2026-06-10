@@ -9,7 +9,7 @@ using UnityEngine.EventSystems;
 
 namespace Game
 {
-    public class Shooter : MonoBehaviour
+    public class Shooter : MonoBehaviour, IBoardOccupant
     {
         [Title("References")]
         [SerializeField] private TextMeshPro _bulletCountText;

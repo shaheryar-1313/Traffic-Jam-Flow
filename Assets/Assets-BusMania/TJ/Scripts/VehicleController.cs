@@ -119,7 +119,7 @@ namespace TJ.Scripts
             }
 
             // Remove vehicles that are in parkedVehicles from parkingVehicles
-            parkingVehicles.RemoveAll(v => ParkingManager.Instance.parkedVehicles.Contains(v));
+            // parkingVehicles.RemoveAll(v => ParkingManager.Instance.parkedVehicles.Contains(v));
 
             // Group vehicles by SeatCount
             var groupedVehicles = parkingVehicles.GroupBy(v => v.SeatCount).ToList();

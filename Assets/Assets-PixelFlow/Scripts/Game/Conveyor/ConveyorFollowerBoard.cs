@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using DG.Tweening;
 using Dreamteck.Splines;
 using Sirenix.OdinInspector;
@@ -15,7 +15,14 @@ namespace Game
         public bool IsInitialized { get; private set; }
         public bool IsBoardReadyForConveyor { get; private set; } = true;
         public bool IsBoardCompletedPath { get; private set; } = true;
-        public Shooter AssignedShooter { get; private set; }
+
+        private IBoardOccupant _assignedOccupant;
+
+        /// <summary>Returns the assigned occupant cast to Shooter, or null if the occupant is not a Shooter.</summary>
+        public Shooter AssignedShooter => _assignedOccupant as Shooter;
+
+        /// <summary>Returns the assigned occupant regardless of concrete type.</summary>
+        public IBoardOccupant AssignedOccupant => _assignedOccupant;
 
         private Sequence _placeBoardToMachineSequence;
         private Sequence _placeBoardToConveyorSequence;
@@ -127,7 +134,13 @@ namespace Game
 
         public void SetAssignedShooter(Shooter shooter)
         {
-            AssignedShooter = shooter;
+            _assignedOccupant = shooter;
+        }
+
+        /// <summary>Assigns any IBoardOccupant (e.g. Vehicle) to this board.</summary>
+        public void SetAssignedOccupant(IBoardOccupant occupant)
+        {
+            _assignedOccupant = occupant;
         }
 
         public void OnShooterExhausted()
@@ -138,9 +151,9 @@ namespace Game
 
         private void ResetBoard()
         {
-            if (AssignedShooter != null)
-                AssignedShooter.ResetParent();
-            AssignedShooter = null;
+            if (_assignedOccupant != null)
+                _assignedOccupant.ResetParent();
+            _assignedOccupant = null;
             IsBoardCompletedPath = true;
             _splineFollower.follow = false;
             _splineFollower.followSpeed = 0f;

@@ -53,7 +53,7 @@ public class HelicopterController : Singleton<HelicopterController>
     public void PickUP(Vehicle veh)
     {
         PowerUps.Instance.currentPowerUp = PowerUp.None;
-        veh.slot = vipSlot;
+        // veh.slot = vipSlot;
         _collider.enabled = false;
         _animator.SetBool(hoverID, false);
         hint.SetActive(false);
@@ -76,8 +76,8 @@ public class HelicopterController : Singleton<HelicopterController>
                 {
                     
                     Vector3 pos = new Vector3(vipSlot.transform.position.x, transform.position.y, vipSlot.transform.position.z);
-                    if (veh.garage)
-                        veh.garage.RemoveObstacle(veh);
+                    // if (veh.garage)
+                    //     veh.garage.RemoveObstacle(veh);
 
                     transform.DORotateQuaternion(vipSlot.transform.rotation, 0.3f).SetEase(Ease.InOutQuad);
                     transform.DOMove(pos, 10f).SetSpeedBased().SetEase(Ease.InOutSine).OnComplete(() =>

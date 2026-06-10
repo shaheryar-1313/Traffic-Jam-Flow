@@ -1,4 +1,4 @@
-﻿using Sirenix.OdinInspector;
+using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Game
@@ -14,7 +14,7 @@ namespace Game
         public bool IsPrepared { get; private set; }
         public bool enableShooterGridPieces;
 
-        public void Initialize(GameGrid shooterGrid)
+        public void Initialize()
         {
             IsInitialized = true;
         }

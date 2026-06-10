@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+using TJ.Scripts;
+using UnityEngine;
 using UnityEngine.Pool;
 
 namespace Game
@@ -11,7 +12,6 @@ namespace Game
 
         public void Initialize()
         {
-            
             IsInitialized = true;
         }
 
@@ -21,15 +21,25 @@ namespace Game
             IsPrepared = true;
         }
 
-        public bool TryConsumeShooter(Shooter shooter)
+        /// <summary>
+        /// Tries to place a vehicle into the first available storage slot.
+        /// Returns false if all slots are occupied (triggers fail condition upstream).
+        /// </summary>
+        public bool TryConsumeVehicle(Vehicle vehicle)
         {
+            if (_storageVisualPieces == null || _storageVisualPieces.Length == 0)
+            {
+                Debug.LogWarning("[ShooterStorageController] Storage pieces not prepared yet — cannot consume vehicle.");
+                return false;
+            }
+
             foreach (StoragePiece storage in _storageVisualPieces)
             {
-                if (storage.AssignedShooter != null)
+                if (storage.AssignedVehicle != null)
                     continue;
 
-                shooter.JumpToStorage(storage);
-                storage.Assign(shooter);
+                vehicle.JumpToStorage(storage);
+                storage.Assign(vehicle);
 
                 return true;
             }
@@ -37,11 +47,12 @@ namespace Game
             return false;
         }
 
-        public void ReleaseShooter(Shooter shooter)
+        /// <summary>Removes the vehicle from whichever storage slot it occupies.</summary>
+        public void ReleaseVehicle(Vehicle vehicle)
         {
             foreach (StoragePiece storage in _storageVisualPieces)
             {
-                if (storage.AssignedShooter == shooter)
+                if (storage.AssignedVehicle == vehicle)
                 {
                     storage.Unassign();
                     break;
@@ -49,12 +60,13 @@ namespace Game
             }
         }
 
-        public bool IsShooterInStorage(Shooter shooter, out StoragePiece storagePiece)
+        /// <summary>Returns true and the matching storage slot if the vehicle is currently stored.</summary>
+        public bool IsVehicleInStorage(Vehicle vehicle, out StoragePiece storagePiece)
         {
             storagePiece = null;
             foreach (StoragePiece storage in _storageVisualPieces)
             {
-                if (storage.AssignedShooter == shooter)
+                if (storage.AssignedVehicle == vehicle)
                 {
                     storagePiece = storage;
                     return true;
@@ -64,30 +76,33 @@ namespace Game
             return false;
         }
 
-        public void ArrangeStorageShooters()
+        /// <summary>
+        /// Compacts stored vehicles to fill from the front after one is removed,
+        /// mirroring the original shooter storage arrange behaviour.
+        /// </summary>
+        public void ArrangeStorageVehicles()
         {
-            var shootersInStorage = ListPool<Shooter>.Get();
+            var vehiclesInStorage = ListPool<Vehicle>.Get();
 
             foreach (StoragePiece storage in _storageVisualPieces)
             {
-                if (storage.AssignedShooter != null)
+                if (storage.AssignedVehicle != null)
                 {
-                    shootersInStorage.Add(storage.AssignedShooter);
+                    vehiclesInStorage.Add(storage.AssignedVehicle);
                     storage.Unassign();
                 }
             }
 
-            for (var i = 0; i < shootersInStorage.Count; i++)
+            for (int i = 0; i < vehiclesInStorage.Count; i++)
             {
-                var shooter = shootersInStorage[i];
-                var storagePiece = _storageVisualPieces[i];
-                storagePiece.Assign(shooter);
-                shooter.transform.SetParent(storagePiece.transform);
-                shooter.transform.localPosition = Vector3.zero;
+                Vehicle vehicle = vehiclesInStorage[i];
+                StoragePiece storagePiece = _storageVisualPieces[i];
+                storagePiece.Assign(vehicle);
+                vehicle.transform.SetParent(storagePiece.transform);
+                vehicle.transform.localPosition = Vector3.zero;
             }
 
-
-            ListPool<Shooter>.Release(shootersInStorage);
+            ListPool<Vehicle>.Release(vehiclesInStorage);
         }
     }
 }
