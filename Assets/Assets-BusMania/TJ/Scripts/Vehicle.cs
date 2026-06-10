@@ -57,6 +57,13 @@ namespace TJ.Scripts
         /// <summary>True when the vehicle still has unoccupied seats (bus has capacity remaining).</summary>
         public bool HasEmptySeats => !isFull;
 
+        /// <summary>
+        /// Set to true by <see cref="Game.GameplayController"/> once the jump-to-board animation
+        /// completes and the vehicle is riding the conveyor. Cleared when the board path ends.
+        /// Mirrors <see cref="Game.Shooter.IsReadyForSearchForTarget"/>.
+        /// </summary>
+        public bool IsReadyForPassengerSearch { get; set; }
+
         void Start()
         {
             transform.position = new Vector3(transform.position.x, 1f, transform.position.z);
@@ -202,15 +209,28 @@ namespace TJ.Scripts
             if (playersInSeat == seats.Count)
             {
                 isFull = true;
-                DOVirtual.DelayedCall(1f, () =>
-                {
-                    VehicleGoing();
-                });
+                // VehicleGoing() is intentionally NOT called here.
+                // GameplayController.Vehicle_OnCompletedPath triggers it once the
+                // conveyor run finishes, ensuring the vehicle is never destroyed
+                // while still riding the board.
             }
         }
 
+        /// <summary>
+        /// Called when all seats are filled and the vehicle has finished its conveyor run.
+        /// Detaches from the board, drives off-screen along its forward axis, then self-destructs.
+        /// </summary>
         public void VehicleGoing()
         {
+            ResetParent();
+
+            const float exitDistance = 15f;
+            const float exitDuration = 1.2f;
+
+            Vector3 exitTarget = transform.position + transform.forward * exitDistance;
+            transform.DOMove(exitTarget, exitDuration)
+                .SetEase(Ease.InQuad)
+                .OnComplete(() => Destroy(gameObject));
         }
 
         public void ChangeColor(ColorEnum colorEnum)

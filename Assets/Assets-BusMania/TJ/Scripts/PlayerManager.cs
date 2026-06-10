@@ -1,9 +1,8 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
 using DG.Tweening;
+using Game;
 using UnityEngine;
 using Random = UnityEngine.Random;
 
@@ -12,26 +11,51 @@ namespace TJ.Scripts
     public class PlayerManager : MonoBehaviour
     {
         public static PlayerManager instance;
-        public List<Player> playersInScene = new();
-        public List<Player> totalPlayerList = new();
-        public List<Player> activePlayerList = new();
+
+        [Header("References")]
         public GameObject PlayerPrefab;
         public Transform spawnPoint;
         public Transform pickPoint;
+
+        [Header("Passenger Grid")]
+        /// <summary>
+        /// World-space centre of the passenger grid.
+        /// Assign an empty GameObject positioned at the scene centre (where the pixel targets were).
+        /// Falls back to the midpoint between spawnPoint and pickPoint when null.
+        /// </summary>
+        public Transform gridCenter;
+        [SerializeField] private int _gridColumns = 4;
+        [SerializeField] private int _gridRows = 4;
+        [SerializeField] private float _cellSize = 1.2f;
+
+        [Header("Shuffle")]
+        public bool canShuffle = true;
+        [Range(0, 1)] public float shuffleIntensity = 0.5f;
+
+        // Public lists kept for external access (Player.cs references playersInScene)
+        public List<Player> playersInScene = new();
+        public List<Player> totalPlayerList = new();
+        public List<Player> activePlayerList = new();
+
+        // Legacy serialized fields kept to avoid breaking existing prefab data
         public Vector3 midPoint;
-        private System.Random r = new System.Random();
-
-        [Header("Shuffle")] public bool canShuffle = true;
-        [Range(0, 1)] public float shuffleIntensity = 0.5f; // Float variable to control shuffle intensity
-
         public List<Vector3> pointsBetweenMidAndPick;
         public List<Vector3> pointsBetweenMidAndSpawn;
         public List<Vector3> allPoints;
 
+        public bool isColormatched;
+
+        private Player[][] _playerGrid;
+        private Vector3 _gridCenterPos;
+        private Coroutine _rout;
+
+        /// <summary>Tracks passengers already dispatched to a vehicle so they are never double-boarded.</summary>
+        private readonly HashSet<Player> _boardingPassengers = new();
+
         private void Awake()
         {
             instance = this;
-            GeneratePoints();
+            _gridCenterPos = ResolveGridCenter();
         }
 
         private void OnEnable()
@@ -44,323 +68,404 @@ namespace TJ.Scripts
             EventManager.OnNewVehArrived -= AnyCarColorMatched;
         }
 
+        // ─── Spawning ─────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Entry point called by VehicleController. Derives one passenger per vehicle seat,
+        /// optionally shuffles, then spawns them in a centre grid — mirroring the
+        /// TargetObjectController grid layout used by the PixelFlow target area.
+        /// </summary>
         public void InstantiatePlayers(Vehicle[] vehicles)
         {
+            List<ColorEnum> colors = new();
             foreach (Vehicle v in vehicles)
-            {
                 for (int i = 0; i < v.SeatCount; i++)
+                    colors.Add(v.vehicleColor);
+
+            if (canShuffle)
+                colors = ShuffleColorsWithIntensity(colors, shuffleIntensity);
+
+            SpawnPlayersInGrid(colors);
+        }
+
+        /// <summary>
+        /// Positions passengers in an N×M grid centred on <see cref="gridCenter"/>.
+        /// Columns advance along +X, rows advance along −Z — matching the
+        /// TargetObjectController / GridHelper layout convention.
+        /// Passengers beyond grid capacity are kept hidden in <see cref="totalPlayerList"/>.
+        /// </summary>
+        private void SpawnPlayersInGrid(List<ColorEnum> colors)
+        {
+            ClearAllPlayers();
+
+            _gridCenterPos = ResolveGridCenter();
+            _playerGrid = new Player[_gridColumns][];
+            for (int col = 0; col < _gridColumns; col++)
+                _playerGrid[col] = new Player[_gridRows];
+
+            int gridCapacity = _gridColumns * _gridRows;
+            float halfW = (_gridColumns - 1) * _cellSize * 0.5f;
+            float halfH = (_gridRows - 1) * _cellSize * 0.5f;
+            Transform parent = gridCenter != null ? gridCenter : transform;
+
+            int spawnCount = Mathf.Min(colors.Count, gridCapacity);
+            for (int i = 0; i < spawnCount; i++)
+            {
+                int col = i % _gridColumns;
+                int row = i / _gridColumns;
+
+                float x = _gridCenterPos.x + col * _cellSize - halfW;
+                float z = _gridCenterPos.z + halfH - row * _cellSize;
+                Vector3 pos = new Vector3(x, _gridCenterPos.y, z);
+
+                Player player = CreatePlayer(pos, parent, colors[i]);
+                playersInScene.Add(player);
+                activePlayerList.Add(player);
+                _playerGrid[col][row] = player;
+            }
+
+            // Overflow passengers wait hidden and enter the grid as slots open up
+            for (int i = gridCapacity; i < colors.Count; i++)
+            {
+                Player player = CreatePlayer(_gridCenterPos, transform, colors[i]);
+                player.gameObject.SetActive(false);
+                totalPlayerList.Add(player);
+            }
+        }
+
+        private Player CreatePlayer(Vector3 position, Transform parent, ColorEnum color)
+        {
+            GameObject obj = Instantiate(PlayerPrefab, position, Quaternion.identity, parent);
+            Player plyr = obj.GetComponent<Player>();
+            plyr.ChangeColor(color);
+            return plyr;
+        }
+
+        private void ClearAllPlayers()
+        {
+            foreach (Player p in playersInScene)
+                if (p != null) Destroy(p.gameObject);
+            foreach (Player p in totalPlayerList)
+                if (p != null) Destroy(p.gameObject);
+
+            playersInScene.Clear();
+            totalPlayerList.Clear();
+            activePlayerList.Clear();
+            _boardingPassengers.Clear();
+        }
+
+        // ─── Conveyor-driven passenger search (mirrors TryFindTargetForShooter) ──
+
+        /// <summary>
+        /// Called every frame by <see cref="Game.GameplayController"/> for each vehicle that is
+        /// actively riding the conveyor belt and has empty seats.
+        ///
+        /// Logic mirrors <see cref="Game.TargetObjectController.TryFindTargetForShooter"/>:
+        ///   1. Determine which side of the passenger grid the vehicle is on.
+        ///   2. Project the vehicle's XZ position onto a grid column (Bottom/Top) or row (Left/Right).
+        ///   3. Scan inward from the closest edge to find the first available, colour-matched passenger.
+        ///   4. Use sub-frame step interpolation so fast-moving vehicles never skip a column.
+        /// </summary>
+        /// <param name="vehicle">Vehicle currently on the conveyor.</param>
+        /// <param name="lastCheckPos">World position from the previous frame's check — updated on return.</param>
+        /// <param name="passenger">The found passenger, or null when none matches.</param>
+        /// <param name="checkedPos">The vehicle position recorded this frame (store and pass back next frame).</param>
+        public bool TryFindPassengerForVehicle(Vehicle vehicle,
+                                                Vector3? lastCheckPos,
+                                                out Player passenger,
+                                                out Vector3 checkedPos)
+        {
+            passenger = null;
+            checkedPos = vehicle.transform.position;
+
+            if (_playerGrid == null || vehicle == null || vehicle.isFull) return false;
+            if (activePlayerList.Count == 0) return false;
+
+            // ── Grid bounds ──────────────────────────────────────────────────────
+            float halfW = (_gridColumns - 1) * _cellSize * 0.5f;
+            float halfH = (_gridRows    - 1) * _cellSize * 0.5f;
+            float minX = _gridCenterPos.x - halfW;
+            float maxX = _gridCenterPos.x + halfW;
+            float minZ = _gridCenterPos.z - halfH;
+            float maxZ = _gridCenterPos.z + halfH;
+
+            Vector3 vehiclePos = checkedPos;
+
+            // Pad by one cell so the vehicle is detected while still approaching a column edge
+            float pad       = _cellSize;
+            bool isBetweenX = vehiclePos.x >= minX - pad && vehiclePos.x <= maxX + pad;
+            bool isBetweenZ = vehiclePos.z >= minZ - pad && vehiclePos.z <= maxZ + pad;
+
+            Side side;
+            if      (vehiclePos.z < minZ && isBetweenX) side = Side.Bottom;
+            else if (vehiclePos.z > maxZ && isBetweenX) side = Side.Top;
+            else if (vehiclePos.x > maxX && isBetweenZ) side = Side.Right;
+            else if (vehiclePos.x < minX && isBetweenZ) side = Side.Left;
+            else                                          return false;   // inside or at corner
+
+            // ── Sub-frame step count (anti-miss for fast vehicles) ────────────────
+            int stepCount = 1;
+            if (lastCheckPos.HasValue)
+            {
+                float dist = Vector3.Distance(lastCheckPos.Value, vehiclePos);
+                if (dist > _cellSize)
+                    stepCount = Mathf.CeilToInt(dist / _cellSize);
+            }
+
+            Vector3 lastPos = lastCheckPos ?? vehiclePos;
+
+            // ── Scan interpolated positions ───────────────────────────────────────
+            for (int step = 1; step <= stepCount; step++)
+            {
+                float   t       = (float)step / stepCount;
+                Vector3 scanPos = Vector3.Lerp(lastPos, vehiclePos, t);
+
+                if (TryFindPassengerAtScanPos(scanPos, side, vehicle.vehicleColor,
+                                              minX, halfW, halfH, out passenger))
                 {
-                    GameObject obj = Instantiate(PlayerPrefab, spawnPoint);
-                    Player plyr = obj.GetComponent<Player>();
-                    plyr.ChangeColor(v.vehicleColor);
-                    playersInScene.Add(plyr);
+                    _boardingPassengers.Add(passenger);   // reserve — prevents double-boarding
+                    return true;
                 }
             }
 
-            StartCoroutine(PlayerMovement());
-            //  ShufflePlayerList();
+            return false;
         }
 
-        public void GeneratePoints()
+        /// <summary>
+        /// Projects <paramref name="scanPos"/> onto the passenger grid and scans the resulting
+        /// column (Bottom/Top) or row (Left/Right) inward from the edge closest to the vehicle,
+        /// returning the first colour-matched available passenger.
+        /// </summary>
+        private bool TryFindPassengerAtScanPos(Vector3 scanPos, Side side, ColorEnum vehicleColor,
+                                               float minX, float halfW, float halfH,
+                                               out Player passenger)
         {
-            midPoint = new Vector3(spawnPoint.position.x, pickPoint.position.y, pickPoint.position.z);
+            passenger = null;
+            int col, row, dx, dy, steps;
 
-            pointsBetweenMidAndPick = GeneratePointsBetween(pickPoint.position, midPoint, 12);
-
-            pointsBetweenMidAndSpawn = GeneratePointsBetween(midPoint, spawnPoint.position, 9);
-
-            allPoints = new();
-
-            allPoints.Add(pickPoint.position);
-
-            allPoints.AddRange(pointsBetweenMidAndPick);
-
-            allPoints.Add(midPoint);
-
-            allPoints.AddRange(pointsBetweenMidAndSpawn);
-
-            allPoints.Add(spawnPoint.position);
-        }
-
-        private List<Vector3> GeneratePointsBetween(Vector3 start, Vector3 end, int numberOfPoints)
-        {
-            List<Vector3> points = new List<Vector3>();
-            for (int i = 1; i <= numberOfPoints; i++)
+            if (side == Side.Bottom || side == Side.Top)
             {
-                float t = i / (float)(numberOfPoints + 1);
-                Vector3 point = Vector3.Lerp(start, end, t);
-                points.Add(point);
-            }
+                // Project X → column
+                col = Mathf.RoundToInt((scanPos.x - minX) / _cellSize);
+                col = Mathf.Clamp(col, 0, _gridColumns - 1);
 
-            return points;
-        }
-
-        public IEnumerator PlayerMovement()
-        {
-            yield return null;
-            //shuffle playersinScene list here
-            if (canShuffle)
-                 playersInScene = ShufflePlayerListBasedOnColor(playersInScene, shuffleIntensity);
-                //ShufflePlayerList();
-            totalPlayerList = new List<Player>(playersInScene);
-            for (int i = 0; i < totalPlayerList.Count; i++)
-            {
-                totalPlayerList[i].transform.gameObject.SetActive(false);
-            }
-
-            for (int i = 0; i < 24; i++)
-            {
-                if (totalPlayerList.Count <= 0 || !totalPlayerList[0]) continue;
-                activePlayerList.Add(totalPlayerList[0]);
-                totalPlayerList.RemoveAt(0);
-            }
-
-            var points = allPoints;
-
-
-            for (int i = 0; i < activePlayerList.Count; i++)
-            {
-                Player currentPlayer = activePlayerList[i];
-                currentPlayer.transform.gameObject.SetActive(true);
-                currentPlayer.anim.SetBool(Player.Walk, true);
-                if (i < 14)
+                if (side == Side.Bottom)
                 {
-                    StartCoroutine(currentPlayer.MoveToSlot1(midPoint, pickPoint, points[i], i * .15f));
+                    row = _gridRows - 1;  // bottom row: closest to a vehicle below the grid
+                    dy  = -1;             // scan toward row 0 (top)
                 }
                 else
                 {
-                    StartCoroutine(currentPlayer.MoveToSlot2(points[i], i * .15f));
+                    row = 0;              // top row: closest to a vehicle above the grid
+                    dy  = 1;             // scan toward row _gridRows-1 (bottom)
+                }
+                dx    = 0;
+                steps = _gridRows;
+            }
+            else // Right or Left
+            {
+                // Project Z → row  (row 0 = highest Z)
+                row = Mathf.RoundToInt((_gridCenterPos.z + halfH - scanPos.z) / _cellSize);
+                row = Mathf.Clamp(row, 0, _gridRows - 1);
+
+                if (side == Side.Right)
+                {
+                    col = _gridColumns - 1; // rightmost col: closest to a vehicle to the right
+                    dx  = -1;               // scan toward col 0 (left)
+                }
+                else
+                {
+                    col = 0;                // leftmost col: closest to a vehicle to the left
+                    dx  = 1;               // scan toward col _gridColumns-1 (right)
+                }
+                dy    = 0;
+                steps = _gridColumns;
+            }
+
+            for (int i = 0; i < steps; i++, col += dx, row += dy)
+            {
+                if (col < 0 || col >= _gridColumns) break;
+                if (_playerGrid[col] == null)        continue;
+                if (row < 0 || row >= _gridRows)     break;
+
+                Player cell = _playerGrid[col][row];
+
+                if (cell == null) continue; // empty slot — transparent, keep scanning
+
+                // Occupied slot: accept only an unboarded, colour-matched passenger.
+                if (!_boardingPassengers.Contains(cell) && cell.color == vehicleColor)
+                {
+                    passenger = cell;
+                    return true;
+                }
+
+                // Wrong colour or already boarding — blocks the line of sight.
+                return false;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns the passenger at grid[<paramref name="col"/>][<paramref name="row"/>]
+        /// if it exists, has not started boarding, and matches <paramref name="vehicleColor"/>.
+        /// </summary>
+        private bool TryGetAvailablePassengerAt(int col, int row, ColorEnum vehicleColor, out Player passenger)
+        {
+            passenger = null;
+
+            if (col < 0 || col >= _gridColumns) return false;
+            if (_playerGrid[col] == null)        return false;
+            if (row < 0 || row >= _gridRows)     return false;
+
+            Player candidate = _playerGrid[col][row];
+            if (candidate == null)                              return false;
+            if (_boardingPassengers.Contains(candidate))        return false;
+            if (candidate.color != vehicleColor)                return false;
+
+            passenger = candidate;
+            return true;
+        }
+
+        // ─── Event-based fallback (ParkingManager path, kept for compatibility) ──
+
+        /// <summary>
+        /// Fallback boarding triggered by <see cref="EventManager.OnNewVehArrived"/>.
+        /// Only active when <see cref="ParkingManager.Instance"/> is present in the scene.
+        /// </summary>
+        public void AnyCarColorMatched()
+        {
+            if (ParkingManager.Instance == null) return;
+
+            var cars = ParkingManager.Instance.parkedVehicles;
+            if (cars.Count <= 0)
+            {
+                isColormatched = false;
+                return;
+            }
+
+            foreach (var car in cars)
+            {
+                if (car.isFull) continue;
+                Player match = activePlayerList.FirstOrDefault(p => p != null && p.color == car.vehicleColor);
+                if (match != null)
+                {
+                    isColormatched = true;
+                    match.MoveToTruck(car, true);
+                    return;
+                }
+            }
+
+            isColormatched = false;
+            if (_rout != null) StopCoroutine(_rout);
+        }
+
+        // ─── Post-boarding cleanup ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Called by <see cref="Player.MoveToTruck"/> after a passenger finishes boarding.
+        /// Removes the slot from the grid and slides in the next overflow passenger if available.
+        /// </summary>
+        public IEnumerator RepositionPlayers(Player player)
+        {
+            _boardingPassengers.Remove(player);
+            RemoveFromAllLists(player);
+            RemoveFromGrid(player);
+
+            if (totalPlayerList.Count > 0 && TryFindEmptyGridSlot(out int col, out int row))
+            {
+                Player next = totalPlayerList[0];
+                totalPlayerList.RemoveAt(0);
+
+                float halfW = (_gridColumns - 1) * _cellSize * 0.5f;
+                float halfH = (_gridRows - 1) * _cellSize * 0.5f;
+                float x = _gridCenterPos.x + col * _cellSize - halfW;
+                float z = _gridCenterPos.z + halfH - row * _cellSize;
+                Vector3 targetPos = new Vector3(x, _gridCenterPos.y, z);
+
+                next.gameObject.SetActive(true);
+                next.anim.SetBool(Player.Walk, true);
+                next.transform.DOMove(targetPos, 0.3f)
+                    .OnComplete(() => next.anim.SetBool(Player.Walk, false));
+
+                playersInScene.Add(next);
+                activePlayerList.Add(next);
+                _playerGrid[col][row] = next;
+            }
+
+            yield return null;
+        }
+
+        // ─── Grid helpers ─────────────────────────────────────────────────────────
+
+        private void RemoveFromAllLists(Player player)
+        {
+            playersInScene.Remove(player);
+            activePlayerList.Remove(player);
+            totalPlayerList.Remove(player);
+        }
+
+        private void RemoveFromGrid(Player player)
+        {
+            if (_playerGrid == null) return;
+            for (int col = 0; col < _gridColumns; col++)
+            {
+                if (_playerGrid[col] == null) continue;
+                for (int row = 0; row < _gridRows; row++)
+                {
+                    if (_playerGrid[col][row] == player)
+                    {
+                        _playerGrid[col][row] = null;
+                        return;
+                    }
                 }
             }
         }
 
-        private List<Player> ShufflePlayerListBasedOnColor(List<Player> list, float intensity)
+        private bool TryFindEmptyGridSlot(out int col, out int row)
         {
-            // Separate players by color
-            var colorGroups = list.GroupBy(player => player.color).ToList();
-
-            // Flatten the color groups back to a list, starting with four unique colors
-            var firstHalf = new List<Player>();
-            var secondHalf = new List<Player>();
-
-            // Add players from the first four unique color groups to the first half
-            foreach (var group in colorGroups.Take(4))
+            col = 0;
+            row = 0;
+            if (_playerGrid == null) return false;
+            for (int c = 0; c < _gridColumns; c++)
             {
-                firstHalf.AddRange(group);
+                if (_playerGrid[c] == null) continue;
+                for (int r = 0; r < _gridRows; r++)
+                {
+                    if (_playerGrid[c][r] == null) { col = c; row = r; return true; }
+                }
             }
-
-            // Add remaining players to the second half
-            foreach (var group in colorGroups.Skip(4))
-            {
-                secondHalf.AddRange(group);
-            }
-
-            // Shuffle each half based on intensity
-            firstHalf = ShuffleWithIntensity(firstHalf, intensity);
-            secondHalf = ShuffleWithIntensity(secondHalf, intensity);
-
-            // Combine first and second halves
-            return firstHalf.Concat(secondHalf).ToList();
+            return false;
         }
 
-        private List<Player> ShuffleWithIntensity(List<Player> list, float intensity)
+        private Vector3 ResolveGridCenter()
         {
-            // Apply Fisher-Yates shuffle with intensity control
+            if (gridCenter != null) return gridCenter.position;
+            if (spawnPoint != null && pickPoint != null)
+                return new Vector3(spawnPoint.position.x, pickPoint.position.y, pickPoint.position.z);
+            return transform.position;
+        }
+
+        private List<ColorEnum> ShuffleColorsWithIntensity(List<ColorEnum> colors, float intensity)
+        {
+            var list = new List<ColorEnum>(colors);
             int n = list.Count;
             for (int i = 0; i < n - 1; i++)
             {
                 int j = Mathf.Min(i + Mathf.FloorToInt(Random.Range(0f, 1f) * intensity * (n - i)), n - 1);
                 (list[i], list[j]) = (list[j], list[i]);
             }
-
             return list;
         }
 
+        // ─── Legacy stubs (kept for external compatibility) ───────────────────────
 
-        public bool isColormatched;
-        private Coroutine _rout;
+        public void GeneratePoints() { }
 
-        public void AnyCarColorMatched()
-        {
-            var cars = ParkingManager.Instance.parkedVehicles;
-            if (cars.Count <= 0)
-            {
-                return;
-            }
+        public IEnumerator PlayerMovement() { yield return null; }
 
-            foreach (var car in cars)
-            {
-                if (activePlayerList.Count > 0 && activePlayerList[0].color == car.vehicleColor && !car.isFull)
-                {
-                    isColormatched = true;
-                    activePlayerList[0].MoveToTruck(car, true);
-                    return;
-                }
-            }
-            isColormatched = false;
-            if (_rout != null)
-                StopCoroutine(_rout);
-            // _rout = StartCoroutine(GameManager.instance.CheckIfGameOver());
-        }
+        public void ShufflePlayerList() { }
 
-
-        public IEnumerator RepositionPlayers(Player player)
-        {
-            /*if (count <= totalPlayerList.Count)
-                activePlayerList.Add(totalPlayerList[++count]);*/
-            playersInScene.Remove(player);
-            activePlayerList.Remove(player);
-            totalPlayerList.Remove(player);
-            if (totalPlayerList.Count > 0 && activePlayerList.Count < 24)
-            {
-                activePlayerList.Add(totalPlayerList[0]);
-                totalPlayerList[0].gameObject.SetActive(true);
-                totalPlayerList.RemoveAt(0);
-            }
-
-            for (int i = 0; i < activePlayerList.Count; i++)
-            {
-                Player currentPlayer = activePlayerList[i];
-                currentPlayer.anim.SetBool(Player.Walk, true);
-                Vector3 startPosition = currentPlayer.transform.position;
-                Vector3 endPosition = allPoints[i];
-                currentPlayer.transform.DOMove(endPosition, 0.1f)
-                    .OnComplete(() => currentPlayer.anim.SetBool(Player.Walk, false));
-                Vector3 direction = (endPosition - startPosition).normalized;
-                Quaternion targetRotation = Quaternion.LookRotation(direction);
-                currentPlayer.transform.DORotate(targetRotation.eulerAngles, 0.2f);
-                currentPlayer.gameObject.SetActive(true);
-            }
-            yield return new WaitForSeconds(0.1f);
-            AnyCarColorMatched();
-        }
-
-        public void ShufflePlayerList()
-        {
-            /*int n = playersInScene.Count;
-            for (int i = 0; i < n - 1; i++)
-            {
-                // Pick a random index from i to n-1
-                int j = Random.Range(i, n);
-                // Swap the elements at i and j
-                (playersInScene[i], playersInScene[j]) = (playersInScene[j], playersInScene[i]);
-            }*/
-            int n = playersInScene.Count;
-            int shuffleCount = Mathf.FloorToInt(n * shuffleIntensity); // Only shuffle a percentage of the list
-
-            for (int i = 0; i < shuffleCount; i++)
-            {
-                // Pick a random index from i to n-1
-                int j = Random.Range(i, n);
-                // Swap the elements at i and j
-                (playersInScene[i], playersInScene[j]) = (playersInScene[j], playersInScene[i]);
-            }
-
-            //Debug.Log($"Shuffled playersInScene Count: {playersInScene.Count}");
-            /*// Group players by color
-            var groupedByColor = playersInScene
-                .GroupBy(p => p.color)
-                .OrderBy(x => r.Next())
-                .ToList();
-
-            playersInScene.Clear();
-
-            int totalPlayers = groupedByColor.Sum(g => g.Count());
-            int segmentSize = Mathf.CeilToInt(totalPlayers / 4f); // Divide into 4 segments
-
-            for (int segment = 0; segment < 4; segment++)
-            {
-                if (groupedByColor.Count < 3) break;
-
-                // Select three different color groups for this segment
-                var selectedGroups = groupedByColor.Take(3).ToList();
-                groupedByColor = groupedByColor.Skip(3).ToList();
-
-                // Create a list to hold the players from these three colors
-                List<Player> selectedPlayers = new List<Player>();
-
-                // Add players from each selected group to the list
-                foreach (var group in selectedGroups)
-                {
-                    selectedPlayers.AddRange(group.OrderBy(x => r.Next()).Take(segmentSize / 3).ToList());
-                }
-
-                // Shuffle the selected players
-                selectedPlayers = selectedPlayers.OrderBy(x => r.Next()).ToList();
-
-                // Occasionally insert one or two players from a fourth color
-                if (groupedByColor.Count > 0 && r.Next(100) < 25) // 25% chance to insert a fourth color
-                {
-                    var fourthColorGroup = groupedByColor[0].ToList();
-                    int insertCount = r.Next(1, 3); // Randomly insert 1 or 2 players
-
-                    insertCount =
-                        Mathf.Min(insertCount,
-                            fourthColorGroup.Count); // Ensure we don't take more players than available
-
-                    // Insert players from the fourth color into random positions in selectedPlayers
-                    for (int i = 0; i < insertCount; i++)
-                    {
-                        int insertPosition = r.Next(1, selectedPlayers.Count);
-                        selectedPlayers.Insert(insertPosition, fourthColorGroup[i]);
-                    }
-
-                    // Remove the inserted players from the fourth color group
-                    fourthColorGroup.RemoveRange(0, insertCount);
-
-                    // If there are still players left in the fourth color group, update groupedByColor
-                    if (fourthColorGroup.Count > 0)
-                    {
-                        groupedByColor[0] = fourthColorGroup.GroupBy(p => p.color).First();
-                    }
-                    else
-                    {
-                        groupedByColor.RemoveAt(0);
-                    }
-                }
-
-                // Add the shuffled and possibly enhanced players to the main list
-                playersInScene.AddRange(selectedPlayers);
-            }
-
-            // If any color groups remain, add them to the end of the list
-            foreach (var remainingGroup in groupedByColor)
-            {
-                playersInScene.AddRange(remainingGroup.OrderBy(x => r.Next()).ToList());
-            }
-
-            Debug.Log($"Shuffled playersInScene Count: {playersInScene.Count}");
-*/
-        }
-
-
-        public void UpdatePlayerPos(int posCount)
-        {
-            // Remove the player who has just moved from the queue
-            if (activePlayerList.Count > 0)
-            {
-                // If there are still players left in the totalPlayerList, add the next one to the queue
-                if (totalPlayerList.Count > 0)
-                {
-                    Player newPlayer = totalPlayerList[0];
-                    activePlayerList.Add(newPlayer);
-                    totalPlayerList.RemoveAt(0);
-                    newPlayer.transform.gameObject.SetActive(true);
-                }
-
-                // Reposition the remaining players in the queue
-                for (int i = posCount; i < activePlayerList.Count; i++)
-                {
-                    Player currentPlayer = activePlayerList[i];
-                    currentPlayer.transform.DOMove(allPoints[i - posCount], 0.1f);
-
-                    // Adjust the rotation for players before the midpoint
-                    if (i <= 14 + posCount)
-                    {
-                        currentPlayer.transform.rotation = pickPoint.rotation;
-                    }
-                }
-            }
-        }
+        public void UpdatePlayerPos(int posCount) { }
     }
 }

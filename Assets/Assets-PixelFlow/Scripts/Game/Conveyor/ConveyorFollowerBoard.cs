@@ -152,7 +152,11 @@ namespace Game
         private void ResetBoard()
         {
             if (_assignedOccupant != null)
-                _assignedOccupant.ResetParent();
+            {
+                // Use Unity's overloaded == to guard against already-destroyed MonoBehaviours.
+                if (_assignedOccupant is UnityEngine.Object unityObj && unityObj != null)
+                    _assignedOccupant.ResetParent();
+            }
             _assignedOccupant = null;
             IsBoardCompletedPath = true;
             _splineFollower.follow = false;

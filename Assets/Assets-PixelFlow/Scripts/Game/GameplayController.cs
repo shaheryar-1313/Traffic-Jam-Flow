@@ -22,6 +22,13 @@ namespace Game
         private GameplayState _gameplayState;
         private readonly List<Vehicle> _currentlyMovingVehicles = new List<Vehicle>();
 
+        /// <summary>
+        /// Stores the world position of each conveyor vehicle from the previous frame's
+        /// <see cref="TryFindPassengerForVehicle"/> call.  Used by the sub-frame
+        /// step-count anti-miss logic — mirrors <see cref="ShooterTargetData.LastCheckPosition"/>.
+        /// </summary>
+        private readonly Dictionary<Vehicle, Vector3> _vehicleLastCheckPositions = new();
+
         public void Awake()
         {
             // Only clean up event subscriptions here.
@@ -42,15 +49,54 @@ namespace Game
             Prepare();
         }
 
-        /// <summary>Unsubscribes all in-flight vehicle events and empties the tracking list.</summary>
+        /// <summary>
+        /// Unsubscribes all in-flight vehicle events and empties the tracking list.
+        /// </summary>
         private void CleanupMovingVehicles()
         {
             foreach (Vehicle vehicle in _currentlyMovingVehicles)
             {
                 vehicle.OnCompletedPath -= Vehicle_OnCompletedPath;
                 vehicle.OnJumpToBoardCompleted -= Vehicle_OnJumpToBoardCompleted;
+                vehicle.IsReadyForPassengerSearch = false;
             }
             _currentlyMovingVehicles.Clear();
+            _vehicleLastCheckPositions.Clear();
+        }
+
+        // -------------------------------------------------------------------------
+        // Per-frame passenger → vehicle matching (mirrors TryFindTargetForShooter)
+        // -------------------------------------------------------------------------
+
+        /// <summary>
+        /// Each frame, for every vehicle that has landed on the conveyor and still
+        /// has empty seats, delegates to <see cref="PlayerManager.TryFindPassengerForVehicle"/>
+        /// to find the closest colour-matched passenger in the aligned grid column or row.
+        /// When a passenger is found she is dispatched immediately via
+        /// <see cref="Player.MoveToTruck"/>.
+        /// </summary>
+        private void Update()
+        {
+            if (PlayerManager.instance == null) return;
+
+            foreach (Vehicle vehicle in _currentlyMovingVehicles)
+            {
+                if (vehicle == null) continue;
+                if (!vehicle.IsReadyForPassengerSearch) continue;
+                if (vehicle.isFull) continue;
+
+                Vector3? lastPos = _vehicleLastCheckPositions.TryGetValue(vehicle, out Vector3 stored)
+                    ? stored
+                    : (Vector3?)null;
+
+                if (PlayerManager.instance.TryFindPassengerForVehicle(
+                        vehicle, lastPos, out Player passenger, out Vector3 checkedPos))
+                {
+                    passenger.MoveToTruck(vehicle, true);
+                }
+
+                _vehicleLastCheckPositions[vehicle] = checkedPos;
+            }
         }
 
         public void Initialize()
@@ -132,6 +178,7 @@ namespace Game
         private void Vehicle_OnJumpToBoardCompleted(Vehicle vehicle, ConveyorFollowerBoard board)
         {
             vehicle.OnJumpToBoardCompleted -= Vehicle_OnJumpToBoardCompleted;
+            vehicle.IsReadyForPassengerSearch = true;
             board.StartMove();
         }
 
@@ -142,10 +189,15 @@ namespace Game
         private void Vehicle_OnCompletedPath(Vehicle vehicle)
         {
             vehicle.OnCompletedPath -= Vehicle_OnCompletedPath;
+            vehicle.IsReadyForPassengerSearch = false;
             _currentlyMovingVehicles.Remove(vehicle);
+            _vehicleLastCheckPositions.Remove(vehicle);
 
             if (!vehicle.HasEmptySeats)
+            {
+                vehicle.VehicleGoing();
                 return;
+            }
 
             // Vehicle still has empty seats: send it to the grid visualizer storage box,
             // just as a shooter with remaining bullets would be stored after its run.
