@@ -30,7 +30,8 @@ namespace Game
             _splineFollower.follow = false;
             _splineFollower.spline = spline;
             _splineFollower.followSpeed = 0f;
-            _followSpeed = GameConfigs.Instance.boardFollowSpeed;
+            // _followSpeed = GameConfigs.Instance.boardFollowSpeed;
+            _followSpeed = 5f;
             _splineFollower.onEndReached += SplineFollower_OnEndReached;
             IsInitialized = true;
         }
@@ -60,7 +61,8 @@ namespace Game
 
         public void PlaceBoardToMachine(int index)
         {
-            float gapBetweenBoards = GameConfigs.Instance.gapBetweenBoards;
+            // float gapBetweenBoards = GameConfigs.Instance.gapBetweenBoards
+            float gapBetweenBoards = 1.5f;
 
             Vector3 targetLocalPosition = new Vector3(-(index * gapBetweenBoards), 0f, 0f);
             Vector3 targetLocalAngles = new Vector3(0, 90, 0);
@@ -91,7 +93,9 @@ namespace Game
             IsBoardCompletedPath = false;
             
             Vector3 splineStartPos = _splineFollower.EvaluatePosition(0.0f);
-            float duration = GameConfigs.Instance.boardMachineToConveyorTweenDuration;
+            // float duration = GameConfigs.Instance.boardMachineToConveyorTweenDuration;
+            float duration = 0.5f;
+
             _startMoveTween?.Kill(false);
             _placeBoardToMachineSequence?.Kill(false);
             _placeBoardToConveyorSequence?.Kill(false);

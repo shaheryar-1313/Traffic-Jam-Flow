@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &1065851246456770869
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1065851246456770871}
+  - component: {fileID: 1065851246456770870}
+  m_Layer: 0
+  m_Name: PlayerManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1065851246456770871
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1065851246456770869}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 7.175718, y: -45.213192, z: 85.7513}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1065851246456770870
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1065851246456770869}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 405c21164e3edec42a313ef37dcb037d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  playersInScene: []
+  totalPlayerList: []
+  activePlayerList: []
+  PlayerPrefab: {fileID: 1633259233744734, guid: ec1f499d136bf1648923f9deb9a38103, type: 3}
+  spawnPoint: {fileID: 0}
+  pickPoint: {fileID: 0}
+  midPoint: {x: 0, y: 0, z: 0}
+  canShuffle: 1
+  shuffleIntensity: 0.5
+  pointsBetweenMidAndPick: []
+  pointsBetweenMidAndSpawn: []
+  allPoints: []
+  isColormatched: 0

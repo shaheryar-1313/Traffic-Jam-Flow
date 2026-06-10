@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &2273661117071564424
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2273661117071564430}
+  - component: {fileID: 2273661117071564431}
+  m_Layer: 0
+  m_Name: VehicleController
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2273661117071564430
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2273661117071564424}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 2.2115421, y: -18.805126, z: 38.17581}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2273661117071564431
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2273661117071564424}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9295720b88b522a4cb786d1532bba460, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  vehicles: []
+  totalPlayersCount: 0
+  playerCount: 0
+  totalPlayerDisplay: {fileID: 0}
+  Road: {fileID: 0}
+  playerManager: {fileID: 0}
+  VehiclesMaterialHolder: {fileID: 11400000, guid: 40ec2c2c9f785e54ba528c151ebda14b, type: 2}
+  stickmanMaterialHolder: {fileID: 11400000, guid: c81310b5a83c492478953761042697e6, type: 2}
+  rightCollider: {fileID: 0}
+  leftCollider: {fileID: 0}
+  totalSeats: 0
+  totalVehicles: 0
+  shuffle: 1

@@ -197,7 +197,7 @@ namespace TJ.Scripts
         public void MoveCarStraight()
         {
             Vibration.Vibrate(40);
-            SoundController.Instance.PlayOneShot(SoundController.Instance.tapSound, 0.5f);
+            // SoundController.Instance.PlayOneShot(SoundController.Instance.tapSound, 0.5f);
             slot.isOccupied = true;
             isMovingStraight = true;
             isMovingForward = true;

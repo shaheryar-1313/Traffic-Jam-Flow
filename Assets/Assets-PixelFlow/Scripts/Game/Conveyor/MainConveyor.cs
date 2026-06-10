@@ -32,6 +32,10 @@ namespace Game
         private Sequence _boardWarningSequence;
         private int _boardCount;
 
+        public void Awake()
+        {
+            Prepare(5);
+        }
 
         public void Initialize()
         {
