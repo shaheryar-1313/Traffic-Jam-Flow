@@ -5,6 +5,8 @@ namespace Game
 {
     public class GridAndStorageVisualizer : MonoBehaviour
     {
+        public static readonly Vector3 StoredVehicleOffset = new Vector3(0f, 1f, 1.5f);
+
         [Title("References")]
         [SerializeField] private GridPiece _gridPrefab;
         [SerializeField] private StoragePiece _storagePrefab;

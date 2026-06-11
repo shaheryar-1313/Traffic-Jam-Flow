@@ -24,6 +24,7 @@ namespace TJ.Scripts
         public Vector3 newScale;
         public int playersInSeat = 0;
         private bool canCollideWitOtherVehicle = true;
+        private readonly HashSet<Transform> _reservedSeats = new HashSet<Transform>();
         public static bool isMovingStraight = false;
         public static ColorEnum LastTouchedCarcolor;
         public bool isMovingForward = false;
@@ -33,6 +34,7 @@ namespace TJ.Scripts
         // Board attachment
         private Transform _parentTransform;
         private Sequence _jumpSequence;
+        private bool _isExiting = false;
 
         /// <summary>
         /// True once this vehicle has performed its initial forward drive at least once.
@@ -98,6 +100,16 @@ namespace TJ.Scripts
 
         private void OnMouseDown()
         {
+            if (_isExiting) return;
+
+            if (Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
+            {
+                if (Game.GameManager.Instance.GameplayController.AvailableBoardCount <= 0)
+                {
+                    return;
+                }
+            }
+
             // When sitting in a storage slot, tap sends the vehicle back to the conveyor.
             if (IsInStorage)
             {
@@ -107,8 +119,30 @@ namespace TJ.Scripts
 
             // After the first forward drive, skip the drive animation entirely and
             // place the vehicle directly onto the next available conveyor board.
+            // BUT still check for obstacles – if something is still in the way,
+            // bump into it instead of teleporting through.
+            // Once the vehicle has already reached the road/conveyor (isCollided
+            // or canCollideWitOtherVehicle is false), skip the obstacle check.
             if (_hasStartedMoving)
             {
+                if (!isCollided && canCollideWitOtherVehicle &&
+                    CheckForVehicleInFront(out RaycastHit hitBefore))
+                {
+                    // Obstacle still present – bump towards it and stay put.
+                    isMovingStraight = true;
+                    isMovingForward = true;
+                    Vibration.Vibrate(40);
+
+                    Vector3 targetPosition =
+                        transform.position +
+                        transform.forward * (hitBefore.distance + 1);
+                    movingZdir = transform.DOMove(targetPosition, 0.2f).SetEase(Ease.InQuad);
+
+                    // Reset so the next tap will re-check obstacles again.
+                    _hasStartedMoving = true;
+                    return;
+                }
+
                 SendDirectlyToBoard();
                 return;
             }
@@ -193,15 +227,25 @@ namespace TJ.Scripts
         {
             for (int i = seats.Count - 1; i >= 0; i--)
             {
-                if (seats[i].childCount == 0)
+                Transform seat = seats[i];
+                if (seat.childCount == 0 && !_reservedSeats.Contains(seat))
                 {
+                    _reservedSeats.Add(seat);
                     playersInSeat++;
                     IsVehicleFull();
-                    return seats[i];
+                    return seat;
                 }
             }
 
             return null;
+        }
+
+        public void ReleaseSeatReservation(Transform seat)
+        {
+            if (seat == null)
+                return;
+
+            _reservedSeats.Remove(seat);
         }
 
         public void IsVehicleFull()
@@ -222,15 +266,46 @@ namespace TJ.Scripts
         /// </summary>
         public void VehicleGoing()
         {
+            _isExiting = true;
             ResetParent();
 
-            const float exitDistance = 15f;
-            const float exitDuration = 1.2f;
+            float moveStraightDistance = 10.25f;
+            float moveAfterTurnDistance = 15f;
+            float straightDuration = 1f;
+            float turnDuration = 0.1f;
+            float exitDuration = 1.2f;
 
-            Vector3 exitTarget = transform.position + transform.forward * exitDistance;
-            transform.DOMove(exitTarget, exitDuration)
-                .SetEase(Ease.InQuad)
-                .OnComplete(() => Destroy(gameObject));
+            Quaternion originalRotation = transform.rotation;
+            Quaternion targetRotation = originalRotation * Quaternion.Euler(0f, 90f, 0f);
+
+            // Compute local center of vehicle meshes to rotate around midpoint
+            Vector3 localCenter = Vector3.zero;
+            int meshCount = 0;
+            foreach (var r in GetComponentsInChildren<Renderer>())
+            {
+                if (r is MeshRenderer)
+                {
+                    localCenter += transform.InverseTransformPoint(r.bounds.center);
+                    meshCount++;
+                }
+            }
+            if (meshCount > 0)
+            {
+                localCenter /= meshCount;
+            }
+
+            Vector3 straightTarget = transform.position + transform.forward * moveStraightDistance;
+            Vector3 rotationCenter = straightTarget + originalRotation * localCenter;
+            Vector3 turnPivotTarget = rotationCenter - targetRotation * localCenter;
+            Vector3 finalTarget = turnPivotTarget + (targetRotation * Vector3.forward) * moveAfterTurnDistance;
+
+            Sequence exitSequence = DOTween.Sequence();
+            exitSequence.Append(transform.DOMove(straightTarget, straightDuration).SetEase(Ease.Linear));
+            exitSequence.Append(transform.DORotateQuaternion(targetRotation, turnDuration).SetEase(Ease.Linear));
+            exitSequence.Join(transform.DOMove(turnPivotTarget, turnDuration).SetEase(Ease.Linear));
+            exitSequence.Append(transform.DOMove(finalTarget, exitDuration).SetEase(Ease.InQuad));
+            exitSequence.OnComplete(() => Destroy(gameObject));
+            exitSequence.SetLink(gameObject);
         }
 
         public void ChangeColor(ColorEnum colorEnum)
@@ -465,8 +540,9 @@ namespace TJ.Scripts
             float duration = GameConfigs.Instance.shooterJumpToConveyorDuration;
             float power = GameConfigs.Instance.shooterJumpToConveyorPower;
 
+            Vector3 boardLocalTarget = new Vector3(0f, 1f, 1f);
             _jumpSequence = DOTween.Sequence();
-            _jumpSequence.Insert(0f, transform.DOLocalJump(Vector3.zero, power, 1, duration));
+            _jumpSequence.Insert(0f, transform.DOLocalJump(boardLocalTarget, power, 1, duration));
             _jumpSequence.Insert(0f, transform.DOLocalRotate(Vector3.zero, duration));
             _jumpSequence.OnComplete(() =>
             {
@@ -502,7 +578,7 @@ namespace TJ.Scripts
             DOTween.Kill(transform);
 
             transform.SetParent(storage.transform);
-            transform.localPosition = Vector3.zero;
+            transform.localPosition = GridAndStorageVisualizer.StoredVehicleOffset;
             transform.localEulerAngles = Vector3.zero;
         }
 

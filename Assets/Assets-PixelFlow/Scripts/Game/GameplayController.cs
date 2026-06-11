@@ -4,6 +4,8 @@ using TJ.Scripts;
 using UnityEngine;
 using Utilities.EventBus;
 
+// Side enum lives in Game namespace (GlobalEnums.cs)
+
 namespace Game
 {
     public class GameplayController : MonoBehaviour
@@ -28,6 +30,20 @@ namespace Game
         /// step-count anti-miss logic — mirrors <see cref="ShooterTargetData.LastCheckPosition"/>.
         /// </summary>
         private readonly Dictionary<Vehicle, Vector3> _vehicleLastCheckPositions = new();
+
+        /// <summary>
+        /// Tracks which grid columns (Bottom/Top sides) or rows (Left/Right sides) have already
+        /// been checked for each vehicle during the current conveyor-side traversal.
+        /// Reset when the vehicle transitions to a new side of the grid.
+        /// </summary>
+        private readonly Dictionary<Vehicle, HashSet<int>> _vehicleCheckedIndices = new();
+
+        /// <summary>
+        /// Stores the last conveyor side each vehicle was detected on, so we know when to
+        /// reset <see cref="_vehicleCheckedIndices"/>.
+        /// </summary>
+        private readonly Dictionary<Vehicle, Side> _vehicleLastSide = new();
+
 
         public void Awake()
         {
@@ -62,6 +78,8 @@ namespace Game
             }
             _currentlyMovingVehicles.Clear();
             _vehicleLastCheckPositions.Clear();
+            _vehicleCheckedIndices.Clear();
+            _vehicleLastSide.Clear();
         }
 
         // -------------------------------------------------------------------------
@@ -89,13 +107,32 @@ namespace Game
                     ? stored
                     : (Vector3?)null;
 
+                // Get or create the per-vehicle checked-indices set
+                if (!_vehicleCheckedIndices.TryGetValue(vehicle, out HashSet<int> checkedSet))
+                {
+                    checkedSet = new HashSet<int>();
+                    _vehicleCheckedIndices[vehicle] = checkedSet;
+                }
+                _vehicleLastSide.TryGetValue(vehicle, out Side prevSide);
+
                 if (PlayerManager.instance.TryFindPassengerForVehicle(
-                        vehicle, lastPos, out Player passenger, out Vector3 checkedPos))
+                        vehicle, lastPos, checkedSet,
+                        out Player passenger, out Vector3 checkedPos, out Side currentSide, out int checkedIndex))
                 {
                     passenger.MoveToTruck(vehicle, true);
                 }
 
+                // If the vehicle moved to a new side, reset checked indices
+                if (!_vehicleLastSide.ContainsKey(vehicle) || prevSide != currentSide)
+                {
+                    checkedSet.Clear();
+                }
+                // Record the index that was checked this frame
+                if (checkedIndex >= 0)
+                    checkedSet.Add(checkedIndex);
+
                 _vehicleLastCheckPositions[vehicle] = checkedPos;
+                _vehicleLastSide[vehicle] = currentSide;
             }
         }
 
@@ -192,6 +229,8 @@ namespace Game
             vehicle.IsReadyForPassengerSearch = false;
             _currentlyMovingVehicles.Remove(vehicle);
             _vehicleLastCheckPositions.Remove(vehicle);
+            _vehicleCheckedIndices.Remove(vehicle);
+            _vehicleLastSide.Remove(vehicle);
 
             if (!vehicle.HasEmptySeats)
             {

@@ -1,5 +1,6 @@
 using System.Collections;
 using DG.Tweening;
+using Game;
 using UnityEngine;
 
 namespace TJ.Scripts
@@ -57,10 +58,8 @@ namespace TJ.Scripts
         /// Because the vehicle is riding the conveyor belt (moving), the world-space
         /// path approach does not work cleanly.  Instead:
         ///   1. Reserve a seat via <see cref="Vehicle.GetFreeSeat"/> (increments seat count).
-        ///   2. Parent this transform to the seat immediately so the passenger rides with
-        ///      the moving vehicle from this point on.
-        ///   3. Tween the LOCAL position from the initial offset (passenger appears at their
-        ///      grid position in vehicle-local space) to the seated local offset.
+        ///   2. Tween the passenger's world-space position toward the reserved seat.
+        ///   3. Parent this transform to the seat once the passenger reaches it.
         /// </summary>
         public void MoveToTruck(Vehicle vehicle, bool playSound)
         {
@@ -74,28 +73,57 @@ namespace TJ.Scripts
                 return;
             }
 
+            ConveyorFollowerBoard board = vehicle.GetComponentInParent<ConveyorFollowerBoard>();
+            board?.BeginPassengerBoarding();
+
             // Remove from the active queue before parenting to avoid list mutation issues.
             PlayerManager.instance.playersInScene.Remove(this);
 
-            // Parent to the seat — Unity keeps world position by default, so the passenger
-            // appears at its current grid world position expressed in the seat's local space.
-            transform.SetParent(seat);
-
+            // We don't parent immediately so that the passenger doesn't slide with the moving vehicle.
+            // Instead, we interpolate in world space towards the seat's current position,
+            // and parent once they reach the seat.
             anim.SetBool(Walk, true);
 
-            // Tween local position to the seated offset.  Since we are now in the seat's
-            // local space, this animates the passenger "running" to their seat while the
-            // vehicle moves beneath them.
+            Vector3 startPos = transform.position;
             Vector3 seatedLocalPos = new Vector3(0f, -0.34f, 0.2f);
-            transform.DOLocalMove(seatedLocalPos, 0.7f)
-                .SetEase(Ease.InOutSine)
-                .OnComplete(() =>
+            bool reservationActive = true;
+
+            DOTween.To(() => 0f, x =>
+            {
+                if (this == null || seat == null) return;
+
+                Vector3 targetPos = seat.TransformPoint(seatedLocalPos);
+                transform.position = Vector3.Lerp(startPos, targetPos, x);
+
+                Vector3 lookDirection = targetPos - transform.position;
+                lookDirection.y = 0;
+                if (lookDirection.sqrMagnitude > 0.001f)
                 {
-                    anim.SetBool(Walk, false);
-                    anim.SetBool(Sit, true);
-                    transform.localRotation = Quaternion.identity;
-                    transform.localScale    = new Vector3(0.8f, 0.8f, 0.8f);
-                });
+                    transform.rotation = Quaternion.LookRotation(lookDirection);
+                }
+            }, 1f, 0.7f)
+            .SetEase(Ease.InOutSine)
+            .SetLink(gameObject)
+            .OnKill(() =>
+            {
+                if (reservationActive)
+                    vehicle.ReleaseSeatReservation(seat);
+            })
+            .OnComplete(() =>
+            {
+                if (this == null || seat == null) return;
+
+                transform.SetParent(seat);
+                transform.localPosition = seatedLocalPos;
+                transform.localRotation = Quaternion.identity;
+                transform.localScale    = new Vector3(0.8f, 0.8f, 0.8f);
+
+                anim.SetBool(Walk, false);
+                anim.SetBool(Sit, true);
+                board?.EndPassengerBoarding();
+                vehicle.ReleaseSeatReservation(seat);
+                reservationActive = false;
+            });
 
             VehicleController.instance.UpdatePlayerCount();
             StartCoroutine(PlayerManager.instance.RepositionPlayers(this));

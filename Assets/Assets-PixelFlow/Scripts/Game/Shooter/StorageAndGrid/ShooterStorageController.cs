@@ -99,7 +99,7 @@ namespace Game
                 StoragePiece storagePiece = _storageVisualPieces[i];
                 storagePiece.Assign(vehicle);
                 vehicle.transform.SetParent(storagePiece.transform);
-                vehicle.transform.localPosition = Vector3.zero;
+                vehicle.transform.localPosition = GridAndStorageVisualizer.StoredVehicleOffset;
             }
 
             ListPool<Vehicle>.Release(vehiclesInStorage);

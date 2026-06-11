@@ -82,6 +82,17 @@ namespace TJ.Scripts
                 for (int i = 0; i < v.SeatCount; i++)
                     colors.Add(v.vehicleColor);
 
+            if (colors.Count > 0)
+            {
+                _gridColumns = Mathf.CeilToInt(Mathf.Sqrt(colors.Count));
+                _gridRows = Mathf.CeilToInt((float)colors.Count / _gridColumns);
+            }
+            else
+            {
+                _gridColumns = 0;
+                _gridRows = 0;
+            }
+
             if (canShuffle)
                 colors = ShuffleColorsWithIntensity(colors, shuffleIntensity);
 
@@ -154,8 +165,6 @@ namespace TJ.Scripts
             _boardingPassengers.Clear();
         }
 
-        // ─── Conveyor-driven passenger search (mirrors TryFindTargetForShooter) ──
-
         /// <summary>
         /// Called every frame by <see cref="Game.GameplayController"/> for each vehicle that is
         /// actively riding the conveyor belt and has empty seats.
@@ -165,18 +174,27 @@ namespace TJ.Scripts
         ///   2. Project the vehicle's XZ position onto a grid column (Bottom/Top) or row (Left/Right).
         ///   3. Scan inward from the closest edge to find the first available, colour-matched passenger.
         ///   4. Use sub-frame step interpolation so fast-moving vehicles never skip a column.
+        ///   5. Skip columns/rows already checked during this side traversal (one check per index per loop side).
         /// </summary>
         /// <param name="vehicle">Vehicle currently on the conveyor.</param>
         /// <param name="lastCheckPos">World position from the previous frame's check — updated on return.</param>
+        /// <param name="alreadyCheckedIndices">Set of column/row indices already checked during the current side traversal.</param>
         /// <param name="passenger">The found passenger, or null when none matches.</param>
         /// <param name="checkedPos">The vehicle position recorded this frame (store and pass back next frame).</param>
+        /// <param name="currentSide">The side of the grid the vehicle is currently on.</param>
+        /// <param name="checkedIndex">The column/row index that was checked this frame (-1 if none).</param>
         public bool TryFindPassengerForVehicle(Vehicle vehicle,
                                                 Vector3? lastCheckPos,
+                                                HashSet<int> alreadyCheckedIndices,
                                                 out Player passenger,
-                                                out Vector3 checkedPos)
+                                                out Vector3 checkedPos,
+                                                out Game.Side currentSide,
+                                                out int checkedIndex)
         {
             passenger = null;
             checkedPos = vehicle.transform.position;
+            currentSide = Game.Side.Bottom;
+            checkedIndex = -1;
 
             if (_playerGrid == null || vehicle == null || vehicle.isFull) return false;
             if (activePlayerList.Count == 0) return false;
@@ -196,12 +214,14 @@ namespace TJ.Scripts
             bool isBetweenX = vehiclePos.x >= minX - pad && vehiclePos.x <= maxX + pad;
             bool isBetweenZ = vehiclePos.z >= minZ - pad && vehiclePos.z <= maxZ + pad;
 
-            Side side;
-            if      (vehiclePos.z < minZ && isBetweenX) side = Side.Bottom;
-            else if (vehiclePos.z > maxZ && isBetweenX) side = Side.Top;
-            else if (vehiclePos.x > maxX && isBetweenZ) side = Side.Right;
-            else if (vehiclePos.x < minX && isBetweenZ) side = Side.Left;
+            Game.Side side;
+            if      (vehiclePos.z < minZ && isBetweenX) side = Game.Side.Bottom;
+            else if (vehiclePos.z > maxZ && isBetweenX) side = Game.Side.Top;
+            else if (vehiclePos.x > maxX && isBetweenZ) side = Game.Side.Right;
+            else if (vehiclePos.x < minX && isBetweenZ) side = Game.Side.Left;
             else                                          return false;   // inside or at corner
+
+            currentSide = side;
 
             // ── Sub-frame step count (anti-miss for fast vehicles) ────────────────
             int stepCount = 1;
@@ -220,6 +240,16 @@ namespace TJ.Scripts
                 float   t       = (float)step / stepCount;
                 Vector3 scanPos = Vector3.Lerp(lastPos, vehiclePos, t);
 
+                // Compute the column or row index for this scan position
+                int scanIndex = ComputeGridIndex(scanPos, side, minX, halfW, halfH);
+
+                // Skip if this index was already checked during this side traversal
+                if (alreadyCheckedIndices != null && alreadyCheckedIndices.Contains(scanIndex))
+                    continue;
+
+                // Record the index we're about to check
+                checkedIndex = scanIndex;
+
                 if (TryFindPassengerAtScanPos(scanPos, side, vehicle.vehicleColor,
                                               minX, halfW, halfH, out passenger))
                 {
@@ -229,6 +259,26 @@ namespace TJ.Scripts
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Computes the grid column (for Bottom/Top sides) or row (for Left/Right sides) index
+        /// that corresponds to the given scan position.
+        /// </summary>
+        private int ComputeGridIndex(Vector3 scanPos, Game.Side side, float minX, float halfW, float halfH)
+        {
+            if (side == Game.Side.Bottom || side == Game.Side.Top)
+            {
+                // Project X → column
+                int col = Mathf.RoundToInt((scanPos.x - minX) / _cellSize);
+                return Mathf.Clamp(col, 0, _gridColumns - 1);
+            }
+            else
+            {
+                // Project Z → row  (row 0 = highest Z)
+                int row = Mathf.RoundToInt((_gridCenterPos.z + halfH - scanPos.z) / _cellSize);
+                return Mathf.Clamp(row, 0, _gridRows - 1);
+            }
         }
 
         /// <summary>

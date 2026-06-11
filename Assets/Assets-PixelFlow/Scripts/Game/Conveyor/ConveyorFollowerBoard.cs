@@ -27,7 +27,13 @@ namespace Game
         private Sequence _placeBoardToMachineSequence;
         private Sequence _placeBoardToConveyorSequence;
         private Tweener _startMoveTween;
+        private Tweener _followSpeedTween;
         private float _followSpeed;
+        private int _boardingRequests;
+
+        [SerializeField, Min(0f)]
+        private float _passengerBoardingSpeedMultiplier = 0.5f;
+
         public event Action<ConveyorFollowerBoard> OnBoardCompletedPath;
         public event Action<ConveyorFollowerBoard> OnArrangeBoardsRequested;
 
@@ -37,8 +43,8 @@ namespace Game
             _splineFollower.follow = false;
             _splineFollower.spline = spline;
             _splineFollower.followSpeed = 0f;
-            // _followSpeed = GameConfigs.Instance.boardFollowSpeed;
-            _followSpeed = 5f;
+            _followSpeed = GameConfigs.Instance.boardFollowSpeed;
+            // _followSpeed = 5f;
             _splineFollower.onEndReached += SplineFollower_OnEndReached;
             IsInitialized = true;
         }
@@ -68,8 +74,8 @@ namespace Game
 
         public void PlaceBoardToMachine(int index)
         {
-            // float gapBetweenBoards = GameConfigs.Instance.gapBetweenBoards
-            float gapBetweenBoards = 1.5f;
+            float gapBetweenBoards = GameConfigs.Instance.gapBetweenBoards;
+            // float gapBetweenBoards = 1.5f;
 
             Vector3 targetLocalPosition = new Vector3(-(index * gapBetweenBoards), 0f, 0f);
             Vector3 targetLocalAngles = new Vector3(0, 90, 0);
@@ -100,8 +106,8 @@ namespace Game
             IsBoardCompletedPath = false;
             
             Vector3 splineStartPos = _splineFollower.EvaluatePosition(0.0f);
-            // float duration = GameConfigs.Instance.boardMachineToConveyorTweenDuration;
-            float duration = 0.5f;
+            float duration = GameConfigs.Instance.boardMachineToConveyorTweenDuration;
+            // float duration = 0.5f;
 
             _startMoveTween?.Kill(false);
             _placeBoardToMachineSequence?.Kill(false);
@@ -123,7 +129,46 @@ namespace Game
 
         public void StartMove()
         {
-            _splineFollower.followSpeed = _followSpeed;
+            _splineFollower.followSpeed = _boardingRequests > 0
+                ? _followSpeed * _passengerBoardingSpeedMultiplier
+                : _followSpeed;
+        }
+
+        public void BeginPassengerBoarding(float duration = 0.12f)
+        {
+            _boardingRequests++;
+            if (_boardingRequests != 1)
+                return;
+
+            SetFollowSpeed(_followSpeed * _passengerBoardingSpeedMultiplier, duration);
+        }
+
+        public void EndPassengerBoarding(float duration = 0.12f)
+        {
+            if (_boardingRequests <= 0)
+            {
+                _boardingRequests = 0;
+                return;
+            }
+
+            _boardingRequests--;
+            if (_boardingRequests != 0)
+                return;
+
+            SetFollowSpeed(_followSpeed, duration);
+        }
+
+        private void SetFollowSpeed(float targetSpeed, float duration)
+        {
+            _followSpeedTween?.Kill(false);
+            if (_splineFollower == null)
+            {
+                return;
+            }
+
+            _followSpeedTween = DOTween.To(() => _splineFollower.followSpeed, x => _splineFollower.followSpeed = x,
+                targetSpeed, duration)
+                .SetEase(Ease.Linear);
         }
 
         private void OnCompletePath()
@@ -151,6 +196,9 @@ namespace Game
 
         private void ResetBoard()
         {
+            _boardingRequests = 0;
+            _followSpeedTween?.Kill(false);
+
             if (_assignedOccupant != null)
             {
                 // Use Unity's overloaded == to guard against already-destroyed MonoBehaviours.
