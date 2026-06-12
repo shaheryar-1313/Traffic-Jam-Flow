@@ -1637,7 +1637,6 @@ MonoBehaviour:
   playersInSeat: 0
   isMovingForward: 0
   pickUPPoint: {fileID: 2327503315239353965}
-  JumpPosition: {fileID: 8600888100291186349, guid: c5aef81317d07dc43a3adaa14ba0e893, type: 3}
 --- !u!54 &908965767
 Rigidbody:
   m_ObjectHideFlags: 0

@@ -529,6 +529,9 @@ namespace TJ.Scripts
         /// Parents this vehicle to the given ConveyorFollowerBoard and animates it into place,
         /// mirroring the Shooter.JumpToBoard flow. Fires OnJumpToBoardCompleted on completion.
         /// </summary>
+        private const float ConveyorBoardJumpDuration = 1.0f;
+        private const float StorageMoveDuration = 1.0f;
+
         public void JumpToBoard(ConveyorFollowerBoard board)
         {
             movingZdir?.Kill();
@@ -537,7 +540,7 @@ namespace TJ.Scripts
 
             transform.SetParent(board.transform);
 
-            float duration = GameConfigs.Instance.shooterJumpToConveyorDuration;
+            float duration = Mathf.Max(GameConfigs.Instance.shooterJumpToConveyorDuration, ConveyorBoardJumpDuration);
             float power = GameConfigs.Instance.shooterJumpToConveyorPower;
 
             Vector3 boardLocalTarget = new Vector3(0f, 1f, 1f);
@@ -578,8 +581,12 @@ namespace TJ.Scripts
             DOTween.Kill(transform);
 
             transform.SetParent(storage.transform);
-            transform.localPosition = GridAndStorageVisualizer.StoredVehicleOffset;
-            transform.localEulerAngles = Vector3.zero;
+
+            _jumpSequence = DOTween.Sequence();
+            _jumpSequence.Append(transform.DOLocalMove(GridAndStorageVisualizer.StoredVehicleOffset, StorageMoveDuration).SetEase(Ease.InOutSine));
+            _jumpSequence.Join(transform.DOLocalRotate(Vector3.zero, StorageMoveDuration).SetEase(Ease.InOutSine));
+            _jumpSequence.OnComplete(() => _jumpSequence = null);
+            _jumpSequence.SetLink(gameObject);
         }
 
         /// <summary>Detach from the board and restore the original parent (IBoardOccupant).</summary>
