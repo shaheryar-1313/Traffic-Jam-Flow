@@ -39,12 +39,13 @@ namespace Game
             var storagePositions = GridHelper.GetStoragePositions(LevelManager.Instance.CurrentLevelData, shooterGrid);
             StorageVisualPieces = new StoragePiece[storagePositions.Length];
 
+            var storageOffset = new Vector3(3.5f, 0f, 1.7f);
             for (var i = 0; i < storagePositions.Length; i++)
             {
-                var storagePosition = storagePositions[i];
+                var storagePosition = storagePositions[i] + storageOffset;
                 var storagePiece = Instantiate(_storagePrefab, transform);
                 storagePiece.transform.position = storagePosition;
-                storagePiece.transform.localScale =Vector3.one;
+                storagePiece.transform.localScale = Vector3.one;
                 StorageVisualPieces[i] = storagePiece;
             }
 

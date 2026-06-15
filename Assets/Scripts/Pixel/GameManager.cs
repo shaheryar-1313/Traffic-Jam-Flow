@@ -1,5 +1,7 @@
 using Sirenix.OdinInspector;
+using TJ.Scripts;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using Utilities.EventBus;
 
 namespace Game
@@ -11,11 +13,14 @@ namespace Game
         // [SerializeField] private ShooterVisualsConfigs _shooterVisualsConfigs;
         [SerializeField] private GameplayController _gameplayController;
         [SerializeField] private RemoteConfigManager _remoteConfigManager;
+        [SerializeField] private GameObject _gameWonPanel;
+        [SerializeField] private GameObject _gameLostPanel;
 
         public bool IsInitialized { get; private set; }
         public GameplayController GameplayController => _gameplayController;
 
         private EventBinding<GameplayStateChangedEvent> _gameplayStateChangedEventBinding;
+        private bool _gameHasEnded;
 
         private void Start()
         {
@@ -34,6 +39,9 @@ namespace Game
             _gameplayController.Initialize();
             _gameplayController.Prepare();
 
+            _gameHasEnded = false;
+            HideAllPanels();
+
             IsInitialized = true;
 
             _remoteConfigManager.Initialize(OnRemoteConfigReady);
@@ -43,7 +51,17 @@ namespace Game
         {
             // Remote config values are now applied to GameConfigs.
             // The game is already initialized and prepared — just confirm we're in Gameplay state.
+            EnsurePanelReferences();
             ChangeGameplayState(GameplayState.Gameplay);
+        }
+
+        private void EnsurePanelReferences()
+        {
+            if (_gameWonPanel == null)
+                _gameWonPanel = GameObject.Find("Game won Panel");
+
+            if (_gameLostPanel == null)
+                _gameLostPanel = GameObject.Find("Game Lost Panel");
         }
 
         private void OnDestroy()
@@ -76,6 +94,75 @@ namespace Game
         public void PrepareForLevel()
         {
             _gameplayController.Prepare();
+        }
+
+        public void TryLevelAgain()
+        {
+            _gameHasEnded = false;
+            HideAllPanels();
+            SceneManager.LoadScene("Gameplay");
+        }
+
+        private void Update()
+        {
+            if (!_gameHasEnded && IsInitialized)
+                CheckForWinCondition();
+        }
+
+        private void CheckForWinCondition()
+        {
+            if (PlayerManager.instance == null || VehicleController.instance == null)
+                return;
+
+            bool noPlayersLeft = PlayerManager.instance.playersInScene.Count == 0 &&
+                                 PlayerManager.instance.totalPlayerList.Count == 0 &&
+                                 PlayerManager.instance.activePlayerList.Count == 0;
+
+            bool noVehiclesLeft = VehicleController.instance.vehicles == null ||
+                                  VehicleController.instance.vehicles.Length == 0;
+
+            if (noPlayersLeft && noVehiclesLeft)
+            {
+                OnGameWon();
+            }
+        }
+
+        public void OnStorageOverflow()
+        {
+            if (_gameHasEnded)
+                return;
+
+            _gameHasEnded = true;
+            ShowPanelObject(_gameLostPanel);
+            ChangeGameplayState(GameplayState.Fail);
+        }
+
+        private void OnGameWon()
+        {
+            if (_gameHasEnded)
+                return;
+
+            _gameHasEnded = true;
+            ShowPanelObject(_gameWonPanel);
+            ChangeGameplayState(GameplayState.Win);
+        }
+
+        private void ShowPanelObject(GameObject panel)
+        {
+            if (_gameWonPanel != null)
+                _gameWonPanel.SetActive(panel == _gameWonPanel);
+
+            if (_gameLostPanel != null)
+                _gameLostPanel.SetActive(panel == _gameLostPanel);
+        }
+
+        private void HideAllPanels()
+        {
+            if (_gameWonPanel != null)
+                _gameWonPanel.SetActive(false);
+
+            if (_gameLostPanel != null)
+                _gameLostPanel.SetActive(false);
         }
     }
 }

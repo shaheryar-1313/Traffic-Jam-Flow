@@ -243,7 +243,7 @@ namespace Game
             if (!_shooterStorageController.TryConsumeVehicle(vehicle))
             {
                 Debug.Log("FAIL — Vehicle storage overflow");
-                ChangeGameplayState(GameplayState.Fail);
+                GameManager.Instance?.OnStorageOverflow();
                 return;
             }
 

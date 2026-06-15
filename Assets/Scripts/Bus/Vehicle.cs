@@ -495,7 +495,7 @@ namespace TJ.Scripts
                 new Vector3(transform.position.x, transform.position.y, road.position.z)
             };
 
-            transform.DORotate(Vector3.zero, 0.1f);
+            transform.DORotate(Vector3.zero, 0.25f);
             transform.DOPath(path, 0.3f, PathType.Linear).SetEase(Ease.Linear).OnComplete(() =>
             {
                 transform.DOLookAt(roadPos, 0.1f);
