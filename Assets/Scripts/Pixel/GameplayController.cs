@@ -21,6 +21,7 @@ namespace Game
 
         public int AvailableBoardCount => _mainConveyor.GetAvailableBoardCount();
         public int BookedBoardCount { get; private set; }
+        public bool AllBoardsAvailable => _mainConveyor.AllBoardsAvailable;
 
         public void BookBoard() => BookedBoardCount++;
         public void UnbookBoard() => BookedBoardCount--;

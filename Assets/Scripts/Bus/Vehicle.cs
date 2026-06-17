@@ -14,6 +14,7 @@ namespace TJ.Scripts
         [SerializeField] private List<MeshRenderer> vehMesh;
         public List<GameObject> removableParts;
         public Transform pickUPPoint;
+        [SerializeField] private float _wallFollowSpeed = 15f;
 
         // ─── Movement State ─────────────────────────────────────────────
         public Tween movingZdir;
@@ -66,7 +67,6 @@ namespace TJ.Scripts
 
         // ─── Constants ─────────────────────────────────────────────────
         private const float TurnDuration = 0.3f;
-        private const float WallFollowSpeed = 12f;
         private const float ConveyorBoardJumpDuration = 1.0f;
         private const float StorageMoveDuration = 1.0f;
 
@@ -534,7 +534,7 @@ namespace TJ.Scripts
 
             Sequence seq = DOTween.Sequence();
             seq.Append(transform.DORotateQuaternion(targetRotation, TurnDuration).SetEase(Ease.InOutSine));
-            seq.Append(transform.DOMove(targetPos, WallFollowSpeed).SetSpeedBased().SetEase(Ease.Linear));
+            seq.Append(transform.DOMove(targetPos, _wallFollowSpeed).SetSpeedBased().SetEase(Ease.Linear));
             seq.SetUpdate(UpdateType.Fixed);
             seq.SetLink(gameObject);
 
@@ -565,7 +565,7 @@ namespace TJ.Scripts
 
             Sequence seq = DOTween.Sequence();
             seq.Append(transform.DORotateQuaternion(targetRotation, TurnDuration).SetEase(Ease.InOutSine));
-            seq.Append(transform.DOMove(transitPos, WallFollowSpeed).SetSpeedBased().SetEase(Ease.Linear));
+            seq.Append(transform.DOMove(transitPos, _wallFollowSpeed).SetSpeedBased().SetEase(Ease.Linear));
             seq.SetUpdate(UpdateType.Fixed);
             seq.SetLink(gameObject);
 

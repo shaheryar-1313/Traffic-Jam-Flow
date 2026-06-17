@@ -181,6 +181,12 @@ namespace Game
             return availableBoardCount;
         }
 
+        /// <summary>Total number of conveyor boards that exist in this level.</summary>
+        public int TotalBoardCount => _allBoards.Count;
+
+        /// <summary>True when every board has finished its run and returned to the idle queue.</summary>
+        public bool AllBoardsAvailable => _boardQueue.Count >= _allBoards.Count;
+
         private void Board_OnArrangeBoardsRequested(ConveyorFollowerBoard board)
         {
             _boardQueue.Enqueue(board);

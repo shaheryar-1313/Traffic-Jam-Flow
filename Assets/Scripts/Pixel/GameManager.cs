@@ -15,10 +15,12 @@ namespace Game
         [SerializeField] private GameObject _gameWonPanel;
         [SerializeField] private GameObject _gameLostPanel;
         [SerializeField] private GameObject _shopPanel;
+        [SerializeField] private GameObject _pausePanel;
 
         public bool IsInitialized { get; private set; }
         public GameplayController GameplayController => _gameplayController;
         public bool IsShopOpen => _shopPanel != null && _shopPanel.activeSelf;
+        public bool IsPaused => _pausePanel != null && _pausePanel.activeSelf;
 
         private EventBinding<GameplayStateChangedEvent> _gameplayStateChangedEventBinding;
         private bool _gameHasEnded;
@@ -94,8 +96,35 @@ namespace Game
         public void TryLevelAgain()
         {
             _gameHasEnded = false;
+            ResumeGame();
             HideAllPanels();
             SceneManager.LoadScene("Gameplay");
+        }
+
+        public void GoToMainMenu()
+        {
+            _gameHasEnded = false;
+            ResumeGame();
+            HideAllPanels();
+            SceneManager.LoadScene("Main Menu");
+        }
+
+        /// <summary>
+        /// Pauses the game by setting Time.timeScale to 0.
+        /// Can be called from a Pause button via UnityEvent.
+        /// </summary>
+        public void PauseGame()
+        {
+            Time.timeScale = 0f;
+        }
+
+        /// <summary>
+        /// Resumes the game by restoring Time.timeScale to 1.
+        /// Can be called from a Resume button via UnityEvent.
+        /// </summary>
+        public void ResumeGame()
+        {
+            Time.timeScale = 1f;
         }
 
         private void Update()
@@ -109,14 +138,16 @@ namespace Game
             if (PlayerManager.instance == null || VehicleController.instance == null)
                 return;
 
+            bool noVehiclesLeft = VehicleController.instance.vehicles == null ||
+                                  VehicleController.instance.vehicles.Length == 0;
+
             bool noPlayersLeft = PlayerManager.instance.playersInScene.Count == 0 &&
                                  PlayerManager.instance.totalPlayerList.Count == 0 &&
                                  PlayerManager.instance.activePlayerList.Count == 0;
 
-            bool noVehiclesLeft = VehicleController.instance.vehicles == null ||
-                                  VehicleController.instance.vehicles.Length == 0;
+            bool allBoardsBack = _gameplayController.AllBoardsAvailable;
 
-            if (noPlayersLeft && noVehiclesLeft)
+            if (noVehiclesLeft && noPlayersLeft && allBoardsBack)
             {
                 OnGameWon();
             }
@@ -149,18 +180,44 @@ namespace Game
 
             if (_gameLostPanel != null)
                 _gameLostPanel.SetActive(panel == _gameLostPanel);
+
+            PauseGame();
         }
 
         public void OpenShopPanel()
         {
             if (_shopPanel != null)
+            {
                 _shopPanel.SetActive(true);
+                PauseGame();
+            }
         }
 
         public void CloseShopPanel()
         {
             if (_shopPanel != null)
+            {
                 _shopPanel.SetActive(false);
+                ResumeGame();
+            }
+        }
+
+        public void OpenPausePanel()
+        {
+            if (_pausePanel != null)
+            {
+                _pausePanel.SetActive(true);
+                PauseGame();
+            }
+        }
+
+        public void ClosePausePanel()
+        {
+            if (_pausePanel != null)
+            {
+                _pausePanel.SetActive(false);
+                ResumeGame();
+            }
         }
 
         private void HideAllPanels()
@@ -173,6 +230,9 @@ namespace Game
 
             if (_shopPanel != null)
                 _shopPanel.SetActive(false);
+
+            if (_pausePanel != null)
+                _pausePanel.SetActive(false);
         }
     }
 }
