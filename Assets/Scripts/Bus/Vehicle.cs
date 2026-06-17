@@ -1,25 +1,27 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using DG.Tweening;
 using Game;
 using UnityEngine;
-using UnityEngine.EventSystems;
 
 namespace TJ.Scripts
 {
     public class Vehicle : MonoBehaviour, IBoardOccupant
     {
+        // ─── Serialized / Public Fields ──────────────────────────────────
         public ColorEnum vehicleColor;
         public List<Transform> seats;
         [SerializeField] private List<MeshRenderer> vehMesh;
+        public List<GameObject> removableParts;
+        public Transform pickUPPoint;
+
+        // ─── Movement State ─────────────────────────────────────────────
         public Tween movingZdir;
         private float distance = 30f;
         private bool isCollided = false;
+        private bool _isNavigating = false;
         public bool isFull = false;
         public Vector3 originalPosition;
-        public List<GameObject> removableParts;
         public Vector3 ogScale;
         public Vector3 newScale;
         public int playersInSeat = 0;
@@ -28,23 +30,19 @@ namespace TJ.Scripts
         public static bool isMovingStraight = false;
         public static ColorEnum LastTouchedCarcolor;
         public bool isMovingForward = false;
-        public Transform pickUPPoint;
         public int SeatCount => seats.Count;
 
-        // Board attachment
+        // ─── Board / Conveyor Attachment ────────────────────────────────
         private Transform _parentTransform;
         private Sequence _jumpSequence;
         private bool _isExiting = false;
+        private bool _isBooked = false;
+        private bool _isDrivingFromStorage = false;
 
-        /// <summary>
-        /// True once this vehicle has performed its initial forward drive at least once.
-        /// Subsequent taps skip the drive animation and go directly to the board.
-        /// </summary>
-        private bool _hasStartedMoving = false;
 
-        /// <summary>
-        /// Fired when JumpToBoard animation completes and the vehicle is fully settled on the board.
-        /// </summary>
+
+        // ─── Events ────────────────────────────────────────────────────
+        /// <summary>Fired when JumpToBoard animation completes.</summary>
         public event Action<Vehicle, ConveyorFollowerBoard> OnJumpToBoardCompleted;
 
         /// <summary>Fired when the conveyor board this vehicle was riding completes its path.</summary>
@@ -53,18 +51,31 @@ namespace TJ.Scripts
         /// <summary>Fired when a stored vehicle is tapped so GameplayController can send it back to a board.</summary>
         public event Action<Vehicle> OnJumpRequest;
 
+        // ─── Properties ────────────────────────────────────────────────
         /// <summary>True while the vehicle is sitting in a grid visualizer storage slot.</summary>
         public bool IsInStorage { get; private set; }
 
-        /// <summary>True when the vehicle still has unoccupied seats (bus has capacity remaining).</summary>
+        /// <summary>True when the vehicle still has unoccupied seats.</summary>
         public bool HasEmptySeats => !isFull;
 
         /// <summary>
-        /// Set to true by <see cref="Game.GameplayController"/> once the jump-to-board animation
-        /// completes and the vehicle is riding the conveyor. Cleared when the board path ends.
-        /// Mirrors <see cref="Game.Shooter.IsReadyForSearchForTarget"/>.
+        /// Set to true by GameplayController once the jump-to-board animation
+        /// completes and the vehicle is riding the conveyor.
         /// </summary>
         public bool IsReadyForPassengerSearch { get; set; }
+
+        // ─── Constants ─────────────────────────────────────────────────
+        private const float TurnDuration = 0.3f;
+        private const float WallFollowSpeed = 12f;
+        private const float ConveyorBoardJumpDuration = 1.0f;
+        private const float StorageMoveDuration = 1.0f;
+
+        // ─── Vehicle-to-vehicle collision guard ─────────────────────────
+        private static int _hitSoundCounter = 0;
+
+        // ════════════════════════════════════════════════════════════════
+        // Lifecycle
+        // ════════════════════════════════════════════════════════════════
 
         void Start()
         {
@@ -72,7 +83,6 @@ namespace TJ.Scripts
             _parentTransform = transform.parent;
             SetInitialPosition();
             ogScale = transform.localScale;
-            isMovingStraight = false;
             Vector3 currentRotation = transform.rotation.eulerAngles;
             transform.rotation = Quaternion.Euler(0, currentRotation.y, 0);
         }
@@ -86,6 +96,13 @@ namespace TJ.Scripts
 
         private void OnDestroy()
         {
+            if (_isBooked)
+            {
+                var gc = Game.GameManager.Instance?.GameplayController;
+                if (gc != null) gc.UnbookBoard();
+                _isBooked = false;
+            }
+
             OnJumpToBoardCompleted = null;
             OnCompletedPath = null;
             OnJumpRequest = null;
@@ -98,16 +115,32 @@ namespace TJ.Scripts
             originalPosition = transform.position;
         }
 
+        // ════════════════════════════════════════════════════════════════
+        // Input
+        // ════════════════════════════════════════════════════════════════
+
         private void OnMouseDown()
         {
             if (_isExiting) return;
+            if (_isNavigating) return;
 
-            if (Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
+            if (Game.GameManager.Instance != null && Game.GameManager.Instance.IsShopOpen) return;
+
+            if (UnityEngine.EventSystems.EventSystem.current != null &&
+                UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
-                if (Game.GameManager.Instance.GameplayController.AvailableBoardCount <= 0)
+                return;
+            }
+
+            if (!_isBooked && Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
+            {
+                var gc = Game.GameManager.Instance.GameplayController;
+                if (gc.AvailableBoardCount - gc.BookedBoardCount <= 0)
                 {
                     return;
                 }
+                gc.BookBoard();
+                _isBooked = true;
             }
 
             // When sitting in a storage slot, tap sends the vehicle back to the conveyor.
@@ -117,41 +150,10 @@ namespace TJ.Scripts
                 return;
             }
 
-            // After the first forward drive, skip the drive animation entirely and
-            // place the vehicle directly onto the next available conveyor board.
-            // BUT still check for obstacles – if something is still in the way,
-            // bump into it instead of teleporting through.
-            // Once the vehicle has already reached the road/conveyor (isCollided
-            // or canCollideWitOtherVehicle is false), skip the obstacle check.
-            if (_hasStartedMoving)
-            {
-                if (!isCollided && canCollideWitOtherVehicle &&
-                    CheckForVehicleInFront(out RaycastHit hitBefore))
-                {
-                    // Obstacle still present – bump towards it and stay put.
-                    isMovingStraight = true;
-                    isMovingForward = true;
-                    Vibration.Vibrate(40);
-
-                    Vector3 targetPosition =
-                        transform.position +
-                        transform.forward * (hitBefore.distance + 1);
-                    movingZdir = transform.DOMove(targetPosition, 0.2f).SetEase(Ease.InQuad);
-
-                    // Reset so the next tap will re-check obstacles again.
-                    _hasStartedMoving = true;
-                    return;
-                }
-
-                SendDirectlyToBoard();
-                return;
-            }
-
             if (Helper.instance)
                 Helper.instance.MoveHand();
 
             LastTouchedCarcolor = vehicleColor;
-            _hasStartedMoving = true;
 
             if (CheckForVehicleInFront(out RaycastHit hitInfo))
             {
@@ -162,7 +164,7 @@ namespace TJ.Scripts
                 Vector3 targetPosition =
                     transform.position +
                     transform.forward * (hitInfo.distance + 1);
-                movingZdir = transform.DOMove(targetPosition, 0.2f).SetEase(Ease.InQuad);
+                movingZdir = transform.DOMove(targetPosition, 0.2f).SetEase(Ease.InQuad).SetUpdate(UpdateType.Fixed);
 
                 return;
             }
@@ -170,28 +172,11 @@ namespace TJ.Scripts
             MoveCarStraight();
         }
 
-        /// <summary>
-        /// Bypasses the drive-forward phase: kills active tweens, strips the roof,
-        /// removes the vehicle from VehicleController, then requests a conveyor board.
-        /// Used on every tap after the first drive has already been triggered.
-        /// </summary>
-        private void SendDirectlyToBoard()
-        {
-            movingZdir?.Kill();
-            _jumpSequence?.Kill();
-            DOTween.Kill(transform);
 
-            isMovingStraight = false;
-            isMovingForward = false;
 
-            DeactivateRoof();
-
-            if (VehicleController.instance != null)
-                VehicleController.instance.RemoveVehicle(this);
-
-            if (Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
-                Game.GameManager.Instance.GameplayController.RequestBoardForVehicle(this);
-        }
+        // ════════════════════════════════════════════════════════════════
+        // Player / Seat Management
+        // ════════════════════════════════════════════════════════════════
 
         public void FillUpVehicle()
         {
@@ -253,60 +238,58 @@ namespace TJ.Scripts
             if (playersInSeat == seats.Count)
             {
                 isFull = true;
-                // VehicleGoing() is intentionally NOT called here.
-                // GameplayController.Vehicle_OnCompletedPath triggers it once the
-                // conveyor run finishes, ensuring the vehicle is never destroyed
-                // while still riding the board.
             }
         }
 
         /// <summary>
         /// Called when all seats are filled and the vehicle has finished its conveyor run.
-        /// Detaches from the board, drives off-screen along its forward axis, then self-destructs.
+        /// Detaches from the board, drives off-screen, then self-destructs.
         /// </summary>
         public void VehicleGoing()
         {
             _isExiting = true;
             ResetParent();
 
-            float moveStraightDistance = 10.25f;
-            float moveAfterTurnDistance = 15f;
-            float straightDuration = 1f;
-            float turnDuration = 0.1f;
-            float exitDuration = 1.2f;
-
-            Quaternion originalRotation = transform.rotation;
-            Quaternion targetRotation = originalRotation * Quaternion.Euler(0f, 90f, 0f);
-
-            // Compute local center of vehicle meshes to rotate around midpoint
-            Vector3 localCenter = Vector3.zero;
-            int meshCount = 0;
-            foreach (var r in GetComponentsInChildren<Renderer>())
+            VehicleController vc = VehicleController.instance;
+            if (vc != null && vc.transitCube != null)
             {
-                if (r is MeshRenderer)
+                Transform transit = vc.transitCube;
+                Vector3 toTransit = transit.position - transform.position;
+                toTransit.y = 0;
+
+                Sequence exitSequence = DOTween.Sequence();
+
+                if (toTransit.sqrMagnitude > 0.01f)
                 {
-                    localCenter += transform.InverseTransformPoint(r.bounds.center);
-                    meshCount++;
+                    Quaternion faceTransitRotation = Quaternion.LookRotation(toTransit);
+                    exitSequence.Append(transform.DORotateQuaternion(faceTransitRotation, 0.15f));
                 }
+
+                exitSequence.Append(transform.DOMove(transit.position, 0.3f).SetEase(Ease.Linear));
+
+                // Once at the transit, turn to face left (exit direction) and drive off-screen
+                Quaternion exitRotation = Quaternion.LookRotation(Vector3.left);
+                exitSequence.Append(transform.DORotateQuaternion(exitRotation, 0.15f));
+
+                Vector3 exitTarget = transit.position + Vector3.left * 15f;
+                exitSequence.Append(transform.DOMove(exitTarget, 0.6f).SetEase(Ease.InQuad));
+
+                exitSequence.OnComplete(() => Destroy(gameObject));
+                exitSequence.SetLink(gameObject);
             }
-            if (meshCount > 0)
+            else
             {
-                localCenter /= meshCount;
+                // Fallback: drive forward then off-screen
+                Vector3 exitTarget = transform.position + transform.forward * 25f;
+                transform.DOMove(exitTarget, 0.8f).SetEase(Ease.InQuad)
+                    .OnComplete(() => Destroy(gameObject))
+                    .SetLink(gameObject);
             }
-
-            Vector3 straightTarget = transform.position + transform.forward * moveStraightDistance;
-            Vector3 rotationCenter = straightTarget + originalRotation * localCenter;
-            Vector3 turnPivotTarget = rotationCenter - targetRotation * localCenter;
-            Vector3 finalTarget = turnPivotTarget + (targetRotation * Vector3.forward) * moveAfterTurnDistance;
-
-            Sequence exitSequence = DOTween.Sequence();
-            exitSequence.Append(transform.DOMove(straightTarget, straightDuration).SetEase(Ease.Linear));
-            exitSequence.Append(transform.DORotateQuaternion(targetRotation, turnDuration).SetEase(Ease.Linear));
-            exitSequence.Join(transform.DOMove(turnPivotTarget, turnDuration).SetEase(Ease.Linear));
-            exitSequence.Append(transform.DOMove(finalTarget, exitDuration).SetEase(Ease.InQuad));
-            exitSequence.OnComplete(() => Destroy(gameObject));
-            exitSequence.SetLink(gameObject);
         }
+
+        // ════════════════════════════════════════════════════════════════
+        // Color
+        // ════════════════════════════════════════════════════════════════
 
         public void ChangeColor(ColorEnum colorEnum)
         {
@@ -321,6 +304,10 @@ namespace TJ.Scripts
             }
         }
 
+        // ════════════════════════════════════════════════════════════════
+        // Forward Driving
+        // ════════════════════════════════════════════════════════════════
+
         public void MoveCarStraight()
         {
             Vibration.Vibrate(40);
@@ -334,7 +321,7 @@ namespace TJ.Scripts
             Vector3 worldPoint = transform.parent.TransformPoint(pointAtDistance);
 
             Debug.DrawLine(transform.position, worldPoint, Color.green);
-            movingZdir = transform.DOMove(worldPoint, 12f).SetSpeedBased();
+            movingZdir = transform.DOMove(worldPoint, 12f).SetSpeedBased().SetUpdate(UpdateType.Fixed);
             GetComponent<AudioSource>().enabled = true;
         }
 
@@ -342,8 +329,6 @@ namespace TJ.Scripts
         {
             float offset = 1.0f;
             float rayDistance = Mathf.Infinity;
-
-            Vector3 forward = transform.TransformDirection(Vector3.forward);
 
             Vector3 leftRayDirection = transform.TransformDirection(Vector3.forward + Vector3.left * offset);
             Vector3 rightRayDirection = transform.TransformDirection(Vector3.forward + Vector3.right * offset);
@@ -384,129 +369,236 @@ namespace TJ.Scripts
             return false;
         }
 
-        private void StrikeAndMoveBack(Vehicle targetVehicle)
-        {
-            Vector3 targetPosition = targetVehicle.transform.position;
-
-            transform.DOMove(targetPosition, 0.5f).OnComplete(() =>
-            {
-                targetVehicle.ShakeVehicle();
-                transform.DOMove(originalPosition, 0.5f);
-            });
-        }
-
         public void ShakeVehicle()
         {
             transform.DOShakeRotation(0.2f, transform.forward * 2, vibrato: 10, randomness: 90).SetEase(Ease.InBounce);
         }
 
-        private static int counter = 0;
-        private bool toggle;
+        // ════════════════════════════════════════════════════════════════
+        // Wall-Based Pathway Navigation
+        // ════════════════════════════════════════════════════════════════
+        //
+        // Flow:  Tap → MoveCarStraight → hits wall → follows wall → hits corner
+        //        → follows next wall → … → hits Transit → requests board.
+        //
+        // Tags used on cubes:
+        //   "WallUp"    – top boundary wall
+        //   "WallDown"  – bottom boundary wall
+        //   "WallLeft"  – left boundary wall
+        //   "WallRight" – right boundary wall
+        //   "Transit"   – transit destination cube
+        //
+        // All wall cubes must have Box Colliders set as Triggers.
+        // ════════════════════════════════════════════════════════════════
 
         private void OnTriggerEnter(Collider other)
         {
-            if (other.gameObject.CompareTag("Down"))
+            // Skip trigger-based navigation while the scripted storage-to-conveyor path is running
+            if (_isDrivingFromStorage) return;
+
+            string tag = other.tag;
+
+            // ── Transit cube reached ────────────────────────────────────
+            if (tag == "Transit" && _isNavigating)
             {
-                canCollideWitOtherVehicle = false;
-                movingZdir.Pause();
-
-                toggle = !toggle;
-
-                MoveToSideBorder(VehicleController.instance.leftCollider, -20f);
-
+                HandleTransitReached();
                 return;
             }
 
-            if (canCollideWitOtherVehicle && other.TryGetComponent(out Vehicle vehicle) &&
+            // ── Wall cube hit (first hit or corner turn) ────────────────
+            if (tag == "WallUp" || tag == "WallDown" || tag == "WallLeft" || tag == "WallRight")
+            {
+                // First hit: vehicle must be actively driving forward
+                // Corner hit: vehicle must already be navigating walls
+                if ((!isCollided && isMovingForward) || _isNavigating)
+                {
+                    HandleWallHit(other);
+                }
+                return;
+            }
+
+            // ── Vehicle-to-vehicle collision ────────────────────────────
+            if (canCollideWitOtherVehicle && !_isNavigating &&
+                other.TryGetComponent(out Vehicle vehicle) &&
                 vehicle.canCollideWitOtherVehicle)
             {
-                movingZdir.Pause();
+                BounceBackToStart(other, vehicle);
+            }
+        }
 
-                if (!isCollided)
+        private void BounceBackToStart(Collider obstacleCollider = null, Vehicle otherVehicle = null)
+        {
+            movingZdir?.Pause();
+
+            if (!isCollided)
+            {
+                if (isMovingStraight && _hitSoundCounter == 0 && isMovingForward)
                 {
-                    if (isMovingStraight && counter == 0 && isMovingForward)
+                    _hitSoundCounter++;
+
+                    GetComponent<AudioSource>().enabled = false;
+                    SoundController.Instance.PlayOneShot(SoundController.Instance.hitSound);
+                    
+                    if (obstacleCollider != null)
                     {
-                        counter++;
-
-                        GetComponent<AudioSource>().enabled = false;
-                        SoundController.Instance.PlayOneShot(SoundController.Instance.hitSound);
                         EffectsManager.instance.PlayEffect(EffectsManager.instance.hitEffect,
-                            other.ClosestPoint(transform.position + new Vector3(0, 0.25f, 0)), Quaternion.identity);
+                            obstacleCollider.ClosestPoint(transform.position + new Vector3(0, 0.25f, 0)),
+                            Quaternion.identity);
                     }
-
-                    vehicle.ShakeVehicle();
-                    transform.DOMove(originalPosition, 0.3f).SetEase(Ease.OutBack)
-                        .OnComplete(() =>
-                        {
-                            counter = 0;
-                            isMovingStraight = false;
-                            isMovingForward = false;
-                        });
                 }
-            }
 
-            if (other.gameObject.CompareTag("Border") && !isCollided)
-            {
-                isCollided = true;
-                isMovingStraight = false;
-                canCollideWitOtherVehicle = false;
+                if (otherVehicle != null)
+                    otherVehicle.ShakeVehicle();
 
-                MoveToTargetFromBorder();
-                VehicleController.instance.RemoveVehicle(this);
-                movingZdir.Pause();
-            }
+                transform.DOMove(originalPosition, 0.3f).SetEase(Ease.OutBack)
+                    .OnComplete(() =>
+                    {
+                        _hitSoundCounter = 0;
+                        isMovingStraight = false;
+                        isMovingForward = false;
 
-            if (other.gameObject.CompareTag("Upborder") && !isCollided)
-            {
-                isCollided = true;
-                isMovingStraight = false;
-                canCollideWitOtherVehicle = false;
-                MoveToTargetFromUpBorder();
-                VehicleController.instance.RemoveVehicle(this);
-                movingZdir.Pause();
+                        if (_isBooked)
+                        {
+                            var gc = Game.GameManager.Instance?.GameplayController;
+                            if (gc != null) gc.UnbookBoard();
+                            _isBooked = false;
+                        }
+                    });
             }
         }
 
-        public void MoveToSideBorder(Transform collider, float distance)
+        /// <summary>
+        /// Handles the vehicle hitting a wall cube. On first hit, transitions from
+        /// "driving forward" to "navigating walls". On corner hits, turns and
+        /// continues along the new wall toward the transit cube.
+        /// </summary>
+        private void HandleWallHit(Collider wallCollider)
         {
+            // Stop current movement
+            movingZdir?.Kill();
+
+            if (!_isNavigating)
+            {
+                // First wall hit — enter navigation mode
+                _isNavigating = true;
+                isCollided = true;
+                isMovingStraight = false;
+                isMovingForward = false;
+                canCollideWitOtherVehicle = false;
+
+                AudioSource audio = GetComponent<AudioSource>();
+                if (audio != null) audio.enabled = false;
+
+                VehicleController.instance.RemoveVehicle(this);
+            }
+
+            VehicleController vc = VehicleController.instance;
+            Vector3 transitPos = vc.transitCube.position;
+            Vector3 currentPos = transform.position;
+
+            string tag = wallCollider.tag;
+
+            // Determine direction along this wall toward the transit cube.
+            // Left/Right walls run vertically (Z axis).
+            // Up/Down walls run horizontally (X axis).
+            Vector3 moveDirection;
+
+            if (tag == "WallLeft" || tag == "WallRight")
+            {
+                float deltaZ = transitPos.z - currentPos.z;
+                if (Mathf.Abs(deltaZ) < 0.5f)
+                {
+                    // Already aligned on Z — head directly to transit
+                    DriveTowardTransit();
+                    return;
+                }
+                moveDirection = new Vector3(0f, 0f, Mathf.Sign(deltaZ));
+            }
+            else // WallUp or WallDown
+            {
+                float deltaX = transitPos.x - currentPos.x;
+                if (Mathf.Abs(deltaX) < 0.5f)
+                {
+                    // Already aligned on X — head directly to transit
+                    DriveTowardTransit();
+                    return;
+                }
+                moveDirection = new Vector3(Mathf.Sign(deltaX), 0f, 0f);
+            }
+
+            // Smooth turn then drive along the wall.
+            // The large overshoot (100 units) guarantees we hit another wall or transit trigger.
+            Quaternion targetRotation = Quaternion.LookRotation(moveDirection);
+            Vector3 targetPos = currentPos + moveDirection * 100f;
+            targetPos.y = currentPos.y;
+
+            Sequence seq = DOTween.Sequence();
+            seq.Append(transform.DORotateQuaternion(targetRotation, TurnDuration).SetEase(Ease.InOutSine));
+            seq.Append(transform.DOMove(targetPos, WallFollowSpeed).SetSpeedBased().SetEase(Ease.Linear));
+            seq.SetUpdate(UpdateType.Fixed);
+            seq.SetLink(gameObject);
+
+            movingZdir = seq;
+        }
+
+        /// <summary>
+        /// When the vehicle is already on the correct axis, drive directly toward
+        /// the transit cube position. The Transit trigger will fire on arrival.
+        /// </summary>
+        private void DriveTowardTransit()
+        {
+            VehicleController vc = VehicleController.instance;
+            Vector3 transitPos = vc.transitCube.position;
+            transitPos.y = transform.position.y;
+
+            Vector3 direction = transitPos - transform.position;
+            direction.y = 0f;
+
+            if (direction.sqrMagnitude < 0.01f)
+            {
+                // Already at transit
+                HandleTransitReached();
+                return;
+            }
+
+            Quaternion targetRotation = Quaternion.LookRotation(direction);
+
+            Sequence seq = DOTween.Sequence();
+            seq.Append(transform.DORotateQuaternion(targetRotation, TurnDuration).SetEase(Ease.InOutSine));
+            seq.Append(transform.DOMove(transitPos, WallFollowSpeed).SetSpeedBased().SetEase(Ease.Linear));
+            seq.SetUpdate(UpdateType.Fixed);
+            seq.SetLink(gameObject);
+
+            movingZdir = seq;
+        }
+
+        /// <summary>
+        /// Called when the vehicle enters the Transit cube trigger.
+        /// Stops wall navigation, deactivates the roof, and immediately requests a conveyor board.
+        /// </summary>
+        private void HandleTransitReached()
+        {
+            movingZdir?.Kill();
+            _isNavigating = false;
+            isMovingForward = false;
             isMovingStraight = false;
-            canCollideWitOtherVehicle = false;
 
-            Transform cube = collider.transform;
-            Vector3 cubePos = cube.position;
+            DeactivateRoof();
 
-            Vector3 directionToCube = new Vector3(cubePos.x - transform.position.x, 0, 0);
-
-            Quaternion targetRotation = Quaternion.LookRotation(directionToCube, Vector3.up);
-
-            transform.DORotateQuaternion(targetRotation, 0.1f);
-            transform.DOLocalMoveX(distance, 0.8f);
-            VehicleController.instance.RemoveVehicle(this);
+            if (Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
+            {
+                if (_isBooked)
+                {
+                    Game.GameManager.Instance.GameplayController.UnbookBoard();
+                    _isBooked = false;
+                }
+                Game.GameManager.Instance.GameplayController.RequestBoardForVehicle(this);
+            }
         }
 
-        public void MoveToTargetFromBorder()
-        {
-            Transform road = VehicleController.instance.Road;
-            Vector3 roadPos = road.position;
-
-            Vector3[] path = new Vector3[]
-            {
-                transform.position,
-                new Vector3(transform.position.x, transform.position.y, road.position.z)
-            };
-
-            transform.DORotate(Vector3.zero, 0.25f);
-            transform.DOPath(path, 0.3f, PathType.Linear).SetEase(Ease.Linear).OnComplete(() =>
-            {
-                transform.DOLookAt(roadPos, 0.1f);
-                DeactivateRoof();
-
-                // Request a conveyor board from the PixelFlow GameplayController.
-                // The vehicle will be parented to the board inside JumpToBoard.
-                if (Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
-                    Game.GameManager.Instance.GameplayController.RequestBoardForVehicle(this);
-            });
-        }
+        // ════════════════════════════════════════════════════════════════
+        // Transit → Conveyor Board
+        // ════════════════════════════════════════════════════════════════
 
         public void DeactivateRoof()
         {
@@ -516,22 +608,16 @@ namespace TJ.Scripts
             }
         }
 
-        public void MoveToTargetFromUpBorder()
-        {
-            DeactivateRoof();
 
-            // Request a conveyor board from the PixelFlow GameplayController.
-            if (Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
-                Game.GameManager.Instance.GameplayController.RequestBoardForVehicle(this);
-        }
+
+        // ════════════════════════════════════════════════════════════════
+        // Conveyor Board / Storage
+        // ════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// Parents this vehicle to the given ConveyorFollowerBoard and animates it into place,
-        /// mirroring the Shooter.JumpToBoard flow. Fires OnJumpToBoardCompleted on completion.
+        /// Parents this vehicle to the given ConveyorFollowerBoard and animates it into place.
+        /// Fires OnJumpToBoardCompleted on completion.
         /// </summary>
-        private const float ConveyorBoardJumpDuration = 1.0f;
-        private const float StorageMoveDuration = 1.0f;
-
         public void JumpToBoard(ConveyorFollowerBoard board)
         {
             movingZdir?.Kill();
@@ -571,8 +657,7 @@ namespace TJ.Scripts
         }
 
         /// <summary>
-        /// Parents this vehicle to the given storage slot and snaps it into place,
-        /// mirroring Shooter.JumpToStorage.
+        /// Parents this vehicle to the given storage slot and snaps it into place.
         /// </summary>
         public void JumpToStorage(StoragePiece storage)
         {
@@ -580,12 +665,160 @@ namespace TJ.Scripts
             _jumpSequence?.Kill();
             DOTween.Kill(transform);
 
+            // Parent the vehicle to the storage piece so it's formally stored,
+            // but we will animate its world position to follow the cubes.
             transform.SetParent(storage.transform);
 
+            Vector3 startPos = transform.position;
+            Vector3 finalPos = storage.transform.TransformPoint(GridAndStorageVisualizer.StoredVehicleOffset);
+            
+            VehicleController vc = VehicleController.instance;
+            
+            // Fallback to old behavior if cubes aren't assigned
+            if (vc == null || vc.leftCube == null || vc.upCube == null)
+            {
+                _jumpSequence = DOTween.Sequence();
+                _jumpSequence.Append(transform.DOLocalMove(GridAndStorageVisualizer.StoredVehicleOffset, StorageMoveDuration).SetEase(Ease.InOutSine));
+                _jumpSequence.Join(transform.DOLocalRotate(Vector3.zero, StorageMoveDuration).SetEase(Ease.InOutSine));
+                _jumpSequence.OnComplete(() => _jumpSequence = null);
+                _jumpSequence.SetLink(gameObject);
+                return;
+            }
+
+            float leftX = vc.leftCube.position.x;
+            float upZ = vc.upCube.position.z;
+
+            // Define the waypoints
+            Vector3 ptB = new Vector3(leftX, startPos.y, startPos.z);
+            Vector3 ptC = new Vector3(leftX, startPos.y, upZ);
+            Vector3 ptD = new Vector3(finalPos.x, startPos.y, upZ);
+            Vector3 ptE = finalPos;
+
             _jumpSequence = DOTween.Sequence();
-            _jumpSequence.Append(transform.DOLocalMove(GridAndStorageVisualizer.StoredVehicleOffset, StorageMoveDuration).SetEase(Ease.InOutSine));
-            _jumpSequence.Join(transform.DOLocalRotate(Vector3.zero, StorageMoveDuration).SetEase(Ease.InOutSine));
+            Vector3 currentPos = startPos;
+            Vector3[] points = new Vector3[] { ptB, ptC, ptD, ptE };
+
+            float speed = 18f; // Move a bit faster when going to storage
+            float turnDuration = 0.15f;
+
+            for (int i = 0; i < points.Length; i++)
+            {
+                Vector3 pt = points[i];
+                Vector3 dir = pt - currentPos;
+                
+                // For rotation, ignore Y difference so it doesn't tilt up/down while driving
+                Vector3 rotDir = dir;
+                rotDir.y = 0;
+                
+                float dist = dir.magnitude;
+                
+                if (dist > 0.1f)
+                {
+                    if (rotDir.sqrMagnitude > 0.01f)
+                    {
+                        Quaternion rot = Quaternion.LookRotation(rotDir);
+                        _jumpSequence.Append(transform.DORotateQuaternion(rot, turnDuration).SetEase(Ease.InOutSine));
+                    }
+                    
+                    _jumpSequence.Append(transform.DOMove(pt, dist / speed).SetEase(Ease.Linear));
+                    currentPos = pt;
+                }
+            }
+
+            // At the end, snap rotation to be perfectly aligned with the storage
+            _jumpSequence.Append(transform.DOLocalRotate(Vector3.zero, 0.15f).SetEase(Ease.InOutSine));
+
             _jumpSequence.OnComplete(() => _jumpSequence = null);
+            _jumpSequence.SetUpdate(UpdateType.Fixed);
+            _jumpSequence.SetLink(gameObject);
+        }
+
+        /// <summary>
+        /// Drives the vehicle from storage back to the conveyor board.
+        /// Path: storage position → drive backward to WallUp (upCube Z) → follow walls to transitCube → request board.
+        /// </summary>
+        public void DriveFromStorageToConveyor()
+        {
+            movingZdir?.Kill();
+            _jumpSequence?.Kill();
+            DOTween.Kill(transform);
+
+            IsInStorage = false;
+
+            // Detach from storage parent so we can move freely in world space
+            ResetParent();
+
+            VehicleController vc = VehicleController.instance;
+
+            // Fallback: if cubes aren't assigned, go directly to transit
+            if (vc == null || vc.upCube == null || vc.leftCube == null || vc.transitCube == null)
+            {
+                HandleTransitReached();
+                return;
+            }
+
+            Vector3 startPos = transform.position;
+            float upZ = vc.upCube.position.z;
+            float leftX = vc.leftCube.position.x;
+            Vector3 transitPos = vc.transitCube.position;
+
+            // Waypoints: reverse to WallUp → follow WallUp to WallLeft corner → follow WallLeft down to transit
+            Vector3 ptA = new Vector3(startPos.x, startPos.y, upZ);       // straight back to WallUp
+            Vector3 ptB = new Vector3(leftX, startPos.y, upZ);            // along WallUp to WallLeft corner
+            Vector3 ptC = new Vector3(leftX, startPos.y, transitPos.z);   // down WallLeft to transit Z
+            Vector3 ptD = new Vector3(transitPos.x, startPos.y, transitPos.z); // to transit cube
+
+            _isDrivingFromStorage = true;
+            _isNavigating = true;
+            isCollided = true;
+            isMovingStraight = false;
+            isMovingForward = false;
+            canCollideWitOtherVehicle = false;
+
+            float speed = 18f;
+            float turnDur = 0.15f;
+
+            _jumpSequence = DOTween.Sequence();
+
+            // Phase 1: Drive BACKWARD to WallUp (no rotation — just reverse)
+            float distToWall = Vector3.Distance(startPos, ptA);
+            if (distToWall > 0.1f)
+            {
+                _jumpSequence.Append(transform.DOMove(ptA, distToWall / speed).SetEase(Ease.Linear));
+            }
+
+            // Phase 2: Turn and follow the remaining waypoints (ptB → ptC → ptD) toward transit
+            Vector3 currentPos = ptA;
+            Vector3[] remainingPoints = new Vector3[] { ptB, ptC, ptD };
+
+            for (int i = 0; i < remainingPoints.Length; i++)
+            {
+                Vector3 pt = remainingPoints[i];
+                Vector3 dir = pt - currentPos;
+                Vector3 rotDir = dir;
+                rotDir.y = 0;
+                float dist = dir.magnitude;
+
+                if (dist > 0.1f)
+                {
+                    if (rotDir.sqrMagnitude > 0.01f)
+                    {
+                        Quaternion rot = Quaternion.LookRotation(rotDir);
+                        _jumpSequence.Append(transform.DORotateQuaternion(rot, turnDur).SetEase(Ease.InOutSine));
+                    }
+                    _jumpSequence.Append(transform.DOMove(pt, dist / speed).SetEase(Ease.Linear));
+                    currentPos = pt;
+                }
+            }
+
+            _jumpSequence.OnComplete(() =>
+            {
+                _jumpSequence = null;
+                _isDrivingFromStorage = false;
+                _isNavigating = false;
+                HandleTransitReached();
+            });
+            _jumpSequence.SetUpdate(UpdateType.Fixed);
             _jumpSequence.SetLink(gameObject);
         }
 

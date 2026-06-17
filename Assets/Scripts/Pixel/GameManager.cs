@@ -10,14 +10,15 @@ namespace Game
     {
         [Title("References")]
         [SerializeField] private GameConfigs _gameConfigs;
-        // [SerializeField] private ShooterVisualsConfigs _shooterVisualsConfigs;
         [SerializeField] private GameplayController _gameplayController;
         [SerializeField] private RemoteConfigManager _remoteConfigManager;
         [SerializeField] private GameObject _gameWonPanel;
         [SerializeField] private GameObject _gameLostPanel;
+        [SerializeField] private GameObject _shopPanel;
 
         public bool IsInitialized { get; private set; }
         public GameplayController GameplayController => _gameplayController;
+        public bool IsShopOpen => _shopPanel != null && _shopPanel.activeSelf;
 
         private EventBinding<GameplayStateChangedEvent> _gameplayStateChangedEventBinding;
         private bool _gameHasEnded;
@@ -71,15 +72,9 @@ namespace Game
 
         private void OnGameplayStateChanged(GameplayStateChangedEvent e)
         {
-            if (e.NewState == GameplayState.Fail)
-            {
-            }
-            else if (e.NewState == GameplayState.Win)
-            {
-            }
             // Only re-prepare when transitioning FROM a terminal state (Win/Fail → restart).
             // Startup flow is handled by OnRemoteConfigReady to avoid a double-Prepare.
-            else if (e.NewState == GameplayState.Gameplay &&
+            if (e.NewState == GameplayState.Gameplay &&
                      (e.OldState == GameplayState.Win || e.OldState == GameplayState.Fail))
             {
                 PrepareForLevel();
@@ -156,6 +151,18 @@ namespace Game
                 _gameLostPanel.SetActive(panel == _gameLostPanel);
         }
 
+        public void OpenShopPanel()
+        {
+            if (_shopPanel != null)
+                _shopPanel.SetActive(true);
+        }
+
+        public void CloseShopPanel()
+        {
+            if (_shopPanel != null)
+                _shopPanel.SetActive(false);
+        }
+
         private void HideAllPanels()
         {
             if (_gameWonPanel != null)
@@ -163,6 +170,9 @@ namespace Game
 
             if (_gameLostPanel != null)
                 _gameLostPanel.SetActive(false);
+
+            if (_shopPanel != null)
+                _shopPanel.SetActive(false);
         }
     }
 }

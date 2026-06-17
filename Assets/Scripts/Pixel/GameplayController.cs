@@ -20,6 +20,10 @@ namespace Game
         public bool IsPrepared { get; private set; }
 
         public int AvailableBoardCount => _mainConveyor.GetAvailableBoardCount();
+        public int BookedBoardCount { get; private set; }
+
+        public void BookBoard() => BookedBoardCount++;
+        public void UnbookBoard() => BookedBoardCount--;
 
         private GameplayState _gameplayState;
         private readonly List<Vehicle> _currentlyMovingVehicles = new List<Vehicle>();
@@ -80,6 +84,7 @@ namespace Game
             _vehicleLastCheckPositions.Clear();
             _vehicleCheckedIndices.Clear();
             _vehicleLastSide.Clear();
+            BookedBoardCount = 0;
         }
 
         // -------------------------------------------------------------------------
@@ -262,7 +267,9 @@ namespace Game
             _shooterStorageController.ReleaseVehicle(vehicle);
             _shooterStorageController.ArrangeStorageVehicles();
 
-            RequestBoardForVehicle(vehicle);
+            // Vehicle drives back to WallUp, follows the path to transitCube,
+            // then HandleTransitReached calls RequestBoardForVehicle automatically.
+            vehicle.DriveFromStorageToConveyor();
         }
 
         public void CHEAT_FinishGameplay(bool isSuccess)

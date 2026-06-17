@@ -13,12 +13,17 @@ namespace TJ.Scripts
         public int totalPlayersCount;
         public int playerCount;
         public TextMeshPro totalPlayerDisplay;
-        public Transform Road;
+
+        [Header("Pathway Cubes")]
+        public Transform upCube;
+        public Transform downCube;
+        public Transform leftCube;
+        public Transform rightCube;
+        public Transform transitCube;
+
         public PlayerManager playerManager;
         public MaterialHolder VehiclesMaterialHolder;
         public MaterialHolder stickmanMaterialHolder;
-        public Transform rightCollider;
-        public Transform leftCollider;
         public int totalSeats;
         public int totalVehicles;
         public bool shuffle = true;
@@ -61,11 +66,7 @@ namespace TJ.Scripts
             ColorEnum[] values = (ColorEnum[])Enum.GetValues(typeof(ColorEnum));
             List<ColorEnum> colors = new(values);
             colors.Remove(ColorEnum.none);
-            //colors.RemoveAt(UnityEngine.Random.Range(0, colors.Count));
-            //colors.RemoveAt(UnityEngine.Random.Range(0, colors.Count));
             colors = colors.OrderBy(x => r.Next()).ToList();
-            // if (shuffle == true)
-            //  vehicles = vehicles.OrderBy(x => r.Next()).ToArray();
 
             int colorIndex = 0;
             for (int i = 0; i < vehicles.Length; i++)
@@ -75,7 +76,6 @@ namespace TJ.Scripts
                     colorIndex = 0;
                 }
 
-                ColorEnum color = colors[0];
                 vehicles[i].ChangeColor(colors[colorIndex]);
                 colorIndex++;
             }
@@ -88,9 +88,6 @@ namespace TJ.Scripts
             foreach (var group in groupedVehicles)
             {
                 List<ColorEnum> existingColors = new List<ColorEnum>();
-                existingColors.Remove(ColorEnum.none);
-                //existingColors.RemoveAt(UnityEngine.Random.Range(0, existingColors.Count));
-                //existingColors.RemoveAt(UnityEngine.Random.Range(0, existingColors.Count));
                 foreach (var vehicle in group)
                 {
                     existingColors.Add(vehicle.vehicleColor);
@@ -118,8 +115,7 @@ namespace TJ.Scripts
                 parkingVehicles.Add(vehicles[i]);
             }
 
-            // Remove vehicles that are in parkedVehicles from parkingVehicles
-            // parkingVehicles.RemoveAll(v => ParkingManager.Instance.parkedVehicles.Contains(v));
+            // Remove vehicles that are in parkedVehicles from parkingVehicles if needed
 
             // Group vehicles by SeatCount
             var groupedVehicles = parkingVehicles.GroupBy(v => v.SeatCount).ToList();
@@ -169,26 +165,5 @@ namespace TJ.Scripts
 
             playerManager.InstantiatePlayers(vehicles);
         }
-        // ReSharper disable Unity.PerformanceAnalysis
-        /*public IEnumerator JumpToSeat(List<Player> players, Vehicle veh, float delay, PlayerManager manager)
-        {
-            yield return new WaitForSeconds(delay);
-            int totalCount = players.Count;
-            if (veh.GetFreeSeat() != null)
-            {
-                for (int i = 0; i < players.Count; i++)
-                {
-                    Player player = players[i];
-                    PlayerManager.instance.playersInScene.Remove(player);
-                    player.StartCoroutine(player.MoveToTruck(player, veh, walkingpoint, i * .15f, totalCount, players));
-                }
-            }
-            else
-            {
-                Debug.Log("vehicle is full");
-                PlayerManager.instance.CheckColor(0);
-            }
-
-        }*/
     }
 }
