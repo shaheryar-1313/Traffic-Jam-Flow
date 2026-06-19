@@ -7,6 +7,18 @@ public class MainMenuManager : MonoBehaviour
     [SerializeField] private GameObject mainMenuPanel;
     [SerializeField] private GameObject shopPanel;
     [SerializeField] private GameObject settingPanel;
+    [SerializeField] private GameObject noAdsPanel;
+
+    [Header("Buttons")]
+    [SerializeField] private Animator homeButtonAnimator;
+
+    private void Start()
+    {
+        if (homeButtonAnimator != null)
+        {
+            homeButtonAnimator.Play("Selected");
+        }
+    }
 
     public void OnPlayButtonClicked()
     {
@@ -26,6 +38,18 @@ public class MainMenuManager : MonoBehaviour
     public void OnMainMenuButtonClicked()
     {
         ShowPanel(mainMenuPanel);
+    }
+
+    public void OpenNoAdsPanel()
+    {
+        if (noAdsPanel != null)
+            noAdsPanel.SetActive(true);
+    }
+
+    public void CloseNoAdsPanel()
+    {
+        if (noAdsPanel != null)
+            noAdsPanel.SetActive(false);
     }
 
     private void ShowPanel(GameObject activePanel)

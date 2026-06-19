@@ -16,6 +16,7 @@ namespace Game
         [SerializeField] private GameObject _gameLostPanel;
         [SerializeField] private GameObject _shopPanel;
         [SerializeField] private GameObject _pausePanel;
+        [SerializeField] private GameObject _pauseButton;
 
         public bool IsInitialized { get; private set; }
         public GameplayController GameplayController => _gameplayController;
@@ -189,6 +190,7 @@ namespace Game
             if (_shopPanel != null)
             {
                 _shopPanel.SetActive(true);
+                if (_pauseButton != null) _pauseButton.SetActive(false);
                 PauseGame();
             }
         }
@@ -198,6 +200,7 @@ namespace Game
             if (_shopPanel != null)
             {
                 _shopPanel.SetActive(false);
+                if (_pauseButton != null) _pauseButton.SetActive(true);
                 ResumeGame();
             }
         }
