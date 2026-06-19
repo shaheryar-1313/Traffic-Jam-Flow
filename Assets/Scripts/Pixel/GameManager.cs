@@ -37,7 +37,26 @@ namespace Game
             _gameplayStateChangedEventBinding = new EventBinding<GameplayStateChangedEvent>(OnGameplayStateChanged);
             EventBus<GameplayStateChangedEvent>.Subscribe(_gameplayStateChangedEventBinding);
 
-            _gameConfigs.Initialize();
+            if (_gameConfigs == null)
+            {
+#if UNITY_EDITOR
+                string[] guids = UnityEditor.AssetDatabase.FindAssets("t:GameConfigs");
+                if (guids.Length > 0)
+                {
+                    string path = UnityEditor.AssetDatabase.GUIDToAssetPath(guids[0]);
+                    _gameConfigs = UnityEditor.AssetDatabase.LoadAssetAtPath<GameConfigs>(path);
+                }
+#endif
+            }
+
+            if (_gameConfigs != null)
+            {
+                _gameConfigs.Initialize();
+            }
+            else
+            {
+                Debug.LogError("[GameManager] GameConfigs is missing! Please assign it in the Inspector.");
+            }
             // All Awake() phases have completed before Start() runs, so the Dreamteck
             // SplineComputer has valid point data — Bounds and storage creation are safe here.
             _gameplayController.Initialize();
@@ -99,7 +118,12 @@ namespace Game
             _gameHasEnded = false;
             ResumeGame();
             HideAllPanels();
-            SceneManager.LoadScene("Gameplay");
+
+            // Ensure all animations and lingering DOTween references are completely destroyed
+            DG.Tweening.DOTween.KillAll();
+
+            // Reload the actual current scene instead of a hardcoded string
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         }
 
         public void GoToMainMenu()

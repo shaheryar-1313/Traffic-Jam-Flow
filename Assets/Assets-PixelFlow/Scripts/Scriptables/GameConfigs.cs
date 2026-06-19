@@ -1,4 +1,4 @@
-﻿using Sirenix.OdinInspector;
+using Sirenix.OdinInspector;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Serialization;
@@ -25,7 +25,6 @@ public class GameConfigs : ScriptableObject
 
     public void Initialize()
     {
-        Debug.Assert(s_Instance == null, "A GameConfigs Instance already exist!");
         s_Instance = this;
     }
 

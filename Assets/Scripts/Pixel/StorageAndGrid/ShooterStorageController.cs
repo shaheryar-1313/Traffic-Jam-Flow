@@ -82,27 +82,9 @@ namespace Game
         /// </summary>
         public void ArrangeStorageVehicles()
         {
-            var vehiclesInStorage = ListPool<Vehicle>.Get();
-
-            foreach (StoragePiece storage in _storageVisualPieces)
-            {
-                if (storage.AssignedVehicle != null)
-                {
-                    vehiclesInStorage.Add(storage.AssignedVehicle);
-                    storage.Unassign();
-                }
-            }
-
-            for (int i = 0; i < vehiclesInStorage.Count; i++)
-            {
-                Vehicle vehicle = vehiclesInStorage[i];
-                StoragePiece storagePiece = _storageVisualPieces[i];
-                storagePiece.Assign(vehicle);
-                vehicle.transform.SetParent(storagePiece.transform);
-                vehicle.transform.localPosition = GridAndStorageVisualizer.StoredVehicleOffset;
-            }
-
-            ListPool<Vehicle>.Release(vehiclesInStorage);
+            // Removed shifting logic as requested to prevent vehicles moving to previous slots
+            // This also fixes the visual bug causing multiple cars to end up in the same slot
+            // due to tween conflicts when shifting!
         }
     }
 }

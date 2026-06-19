@@ -30,6 +30,7 @@ namespace Game
         private Tweener _followSpeedTween;
         private float _followSpeed;
         private int _boardingRequests;
+        private bool _isPausedForCollision = false;
 
         [SerializeField, Min(0f)]
         private float _passengerBoardingSpeedMultiplier = 0.5f;
@@ -129,6 +130,8 @@ namespace Game
 
         public void StartMove()
         {
+            if (_isPausedForCollision) return;
+
             _splineFollower.followSpeed = _boardingRequests > 0
                 ? _followSpeed * _passengerBoardingSpeedMultiplier
                 : _followSpeed;
@@ -165,6 +168,8 @@ namespace Game
             {
                 return;
             }
+            
+            if (_isPausedForCollision) return;
 
             _followSpeedTween = DOTween.To(() => _splineFollower.followSpeed, x => _splineFollower.followSpeed = x,
                 targetSpeed, duration)
@@ -175,6 +180,22 @@ namespace Game
         {
             ResetBoard();
             OnBoardCompletedPath?.Invoke(this);
+        }
+
+        public void PauseMovement()
+        {
+            if (_isPausedForCollision) return;
+            _isPausedForCollision = true;
+            _followSpeedTween?.Kill(false);
+            if (_splineFollower != null)
+                _splineFollower.followSpeed = 0f;
+        }
+
+        public void ResumeMovement()
+        {
+            if (!_isPausedForCollision) return;
+            _isPausedForCollision = false;
+            StartMove();
         }
 
         public void SetAssignedShooter(Shooter shooter)
@@ -196,6 +217,7 @@ namespace Game
 
         private void ResetBoard()
         {
+            _isPausedForCollision = false;
             _boardingRequests = 0;
             _followSpeedTween?.Kill(false);
 

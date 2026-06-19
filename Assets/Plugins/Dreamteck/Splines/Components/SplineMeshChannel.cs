@@ -1093,6 +1093,12 @@ namespace Dreamteck.Splines
 
                 public void Refresh()
                 {
+                    if (_mesh != null && !_mesh.isReadable)
+                    {
+                        Debug.LogWarning($"[SplineMesh] The mesh '{_mesh.name}' does not have Read/Write enabled! Please enable it in the Import Settings. Safely ignoring it to prevent errors.");
+                        _mesh = null;
+                    }
+
                     if (_mesh == null)
                     {
                         vertices = new Vector3[0];

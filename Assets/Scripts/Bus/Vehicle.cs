@@ -39,10 +39,7 @@ namespace TJ.Scripts
         private bool _isExiting = false;
         private bool _isBooked = false;
         private bool _isDrivingFromStorage = false;
-
-
-
-        // ─── Events ────────────────────────────────────────────────────
+        private bool _isWaitingForClearance = false;        // ─── Events ────────────────────────────────────────────────────
         /// <summary>Fired when JumpToBoard animation completes.</summary>
         public event Action<Vehicle, ConveyorFollowerBoard> OnJumpToBoardCompleted;
 
@@ -85,6 +82,87 @@ namespace TJ.Scripts
             ogScale = transform.localScale;
             Vector3 currentRotation = transform.rotation.eulerAngles;
             transform.rotation = Quaternion.Euler(0, currentRotation.y, 0);
+        }
+
+        private void FixedUpdate()
+        {
+            // Only apply avoidance if we are navigating walls, moving from storage, or on the conveyor board
+            bool onConveyor = transform.parent != null && transform.parent.GetComponent<Game.ConveyorFollowerBoard>() != null;
+            if (_isNavigating || _isDrivingFromStorage || onConveyor)
+            {
+                AvoidCollision();
+            }
+        }
+
+        private void AvoidCollision()
+        {
+            float stopDistance = 5.0f; // Max check distance
+            Vector3 forward = transform.TransformDirection(Vector3.forward);
+            
+            // Made thinner (0.3f) so it doesn't accidentally hit cars in adjacent lanes
+            Vector3 halfExtents = new Vector3(0.3f, 0.5f, 0.1f);
+            
+            // Start the cast from the back of the car as requested, slightly elevated
+            Vector3 origin = transform.position - forward * 1.0f + Vector3.up * 0.5f;
+
+            bool isVehicleTooClose = false;
+
+            // Use BoxCastAll to ensure we process ALL hits and don't get blocked by a car behind us
+            RaycastHit[] hits = Physics.BoxCastAll(origin, halfExtents, forward, transform.rotation, stopDistance);
+            
+            foreach (RaycastHit hit in hits)
+            {
+                if (hit.collider.TryGetComponent(out Vehicle aheadVehicle) && aheadVehicle != this)
+                {
+                    // Ignore vehicles that are currently sitting in the storage board
+                    if (aheadVehicle.IsInStorage)
+                        continue;
+
+                    // Only consider vehicles that are physically IN FRONT of this car
+                    Vector3 dirToHit = aheadVehicle.transform.position - transform.position;
+                    if (Vector3.Dot(forward, dirToHit.normalized) > 0.2f)
+                    {
+                        // Hysteresis logic: Requires car to be further away to resume moving
+                        float dist = dirToHit.magnitude;
+                        float threshold = _isWaitingForClearance ? 4.8f : 3.8f;
+                        
+                        if (dist < threshold)
+                        {
+                            isVehicleTooClose = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Game.ConveyorFollowerBoard board = null;
+            if (transform.parent != null)
+            {
+                board = transform.parent.GetComponent<Game.ConveyorFollowerBoard>();
+            }
+
+            if (isVehicleTooClose)
+            {
+                if (!_isWaitingForClearance)
+                {
+                    _isWaitingForClearance = true;
+                    // Pause movement
+                    if (movingZdir != null && movingZdir.IsActive() && movingZdir.IsPlaying()) movingZdir.Pause();
+                    if (_isDrivingFromStorage && _jumpSequence != null && _jumpSequence.IsActive() && _jumpSequence.IsPlaying()) _jumpSequence.Pause();
+                    if (board != null && IsReadyForPassengerSearch) board.PauseMovement();
+                }
+            }
+            else
+            {
+                if (_isWaitingForClearance)
+                {
+                    _isWaitingForClearance = false;
+                    // Resume movement
+                    if (movingZdir != null && movingZdir.IsActive() && !movingZdir.IsPlaying()) movingZdir.Play();
+                    if (_isDrivingFromStorage && _jumpSequence != null && _jumpSequence.IsActive() && !_jumpSequence.IsPlaying()) _jumpSequence.Play();
+                    if (board != null && IsReadyForPassengerSearch) board.ResumeMovement();
+                }
+            }
         }
 
         private void OnValidate()

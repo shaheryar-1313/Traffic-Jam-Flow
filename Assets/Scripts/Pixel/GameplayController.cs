@@ -266,7 +266,7 @@ namespace Game
             vehicle.OnJumpRequest -= Vehicle_OnJumpRequestFromStorage;
 
             _shooterStorageController.ReleaseVehicle(vehicle);
-            _shooterStorageController.ArrangeStorageVehicles();
+            // _shooterStorageController.ArrangeStorageVehicles();
 
             // Vehicle drives back to WallUp, follows the path to transitCube,
             // then HandleTransitReached calls RequestBoardForVehicle automatically.
