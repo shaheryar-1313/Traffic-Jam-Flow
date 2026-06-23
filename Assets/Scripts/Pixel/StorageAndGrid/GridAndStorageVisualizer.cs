@@ -39,7 +39,7 @@ namespace Game
             var storagePositions = GridHelper.GetStoragePositions(LevelManager.Instance.CurrentLevelData, shooterGrid);
             StorageVisualPieces = new StoragePiece[storagePositions.Length];
 
-            var storageOffset = new Vector3(3.5f, 0f, 1.7f);
+            var storageOffset = new Vector3(3.5f, 0f, 0.5f); // Moved 2 points lower on Z axis from 1.7f
             for (var i = 0; i < storagePositions.Length; i++)
             {
                 var storagePosition = storagePositions[i] + storageOffset;

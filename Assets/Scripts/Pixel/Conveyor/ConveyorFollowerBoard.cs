@@ -201,12 +201,19 @@ namespace Game
             _followSpeedTween?.Kill(false);
             if (_splineFollower != null)
                 _splineFollower.followSpeed = 0f;
+            
+            _startMoveTween?.Pause();
+            _placeBoardToConveyorSequence?.Pause();
         }
 
         public void ResumeMovement()
         {
             if (!_isPausedForCollision) return;
             _isPausedForCollision = false;
+            
+            _startMoveTween?.Play();
+            _placeBoardToConveyorSequence?.Play();
+
             StartMove();
         }
 

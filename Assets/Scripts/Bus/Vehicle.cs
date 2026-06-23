@@ -14,7 +14,7 @@ namespace TJ.Scripts
         [SerializeField] private List<MeshRenderer> vehMesh;
         public List<GameObject> removableParts;
         public Transform pickUPPoint;
-        [SerializeField] private float _wallFollowSpeed = 65f;
+        [SerializeField] private float _wallFollowSpeed = 30f;
 
         // ─── Movement State ─────────────────────────────────────────────
         public Tween movingZdir;
@@ -41,6 +41,7 @@ namespace TJ.Scripts
         private bool _isDrivingFromStorage = false;
         private bool _isWaitingForClearance = false;
         private bool _hitExitPoint = false;
+        private bool _hitExitPointRight = false;
 
         // ─── Events ────────────────────────────────────────────────────
         /// <summary>Fired when JumpToBoard animation completes.</summary>
@@ -68,8 +69,8 @@ namespace TJ.Scripts
         // ─── Constants ─────────────────────────────────────────────────
         private const float TurnDuration = 0.06f;
         private const float ConveyorBoardJumpDuration = 0.22f;
-        private const float StorageMoveDuration = 0.2f;
-        private const float ActualWallFollowSpeed = 55f;
+        private const float StorageMoveDuration = 0.5f;
+        private const float ActualWallFollowSpeed = 30f;
 
         // ─── Vehicle-to-vehicle collision guard ─────────────────────────
         private static int _hitSoundCounter = 0;
@@ -112,13 +113,23 @@ namespace TJ.Scripts
                         }
                         break;
                     }
+                    else if (col.CompareTag("ExitPointRight"))
+                    {
+                        _hitExitPointRight = true;
+                        Game.ConveyorFollowerBoard board = transform.parent.GetComponent<Game.ConveyorFollowerBoard>();
+                        if (board != null)
+                        {
+                            board.ForceCompletePath();
+                        }
+                        break;
+                    }
                 }
             }
         }
 
         private void AvoidCollision()
         {
-            float stopDistance = 5.0f; // Max check distance
+            float stopDistance = 7.0f; // Max check distance
             Vector3 forward = transform.TransformDirection(Vector3.forward);
             
             // Made thinner (0.3f) so it doesn't accidentally hit cars in adjacent lanes
@@ -146,7 +157,7 @@ namespace TJ.Scripts
                     {
                         // Hysteresis logic: Requires car to be further away to resume moving
                         float dist = dirToHit.magnitude;
-                        float threshold = _isWaitingForClearance ? 4.8f : 3.8f;
+                        float threshold = _isWaitingForClearance ? 6.0f : 5.0f;
                         
                         if (dist < threshold)
                         {
@@ -170,8 +181,8 @@ namespace TJ.Scripts
                     _isWaitingForClearance = true;
                     // Pause movement
                     if (movingZdir != null && movingZdir.IsActive() && movingZdir.IsPlaying()) movingZdir.Pause();
-                    if (_isDrivingFromStorage && _jumpSequence != null && _jumpSequence.IsActive() && _jumpSequence.IsPlaying()) _jumpSequence.Pause();
-                    if (board != null && IsReadyForPassengerSearch) board.PauseMovement();
+                    if (_jumpSequence != null && _jumpSequence.IsActive() && _jumpSequence.IsPlaying()) _jumpSequence.Pause();
+                    if (board != null) board.PauseMovement();
                 }
             }
             else
@@ -181,8 +192,8 @@ namespace TJ.Scripts
                     _isWaitingForClearance = false;
                     // Resume movement
                     if (movingZdir != null && movingZdir.IsActive() && !movingZdir.IsPlaying()) movingZdir.Play();
-                    if (_isDrivingFromStorage && _jumpSequence != null && _jumpSequence.IsActive() && !_jumpSequence.IsPlaying()) _jumpSequence.Play();
-                    if (board != null && IsReadyForPassengerSearch) board.ResumeMovement();
+                    if (_jumpSequence != null && _jumpSequence.IsActive() && !_jumpSequence.IsPlaying()) _jumpSequence.Play();
+                    if (board != null) board.ResumeMovement();
                 }
             }
         }
@@ -359,6 +370,22 @@ namespace TJ.Scripts
                 return;
             }
 
+            if (_hitExitPointRight)
+            {
+                Sequence exitSequence = DOTween.Sequence();
+                Quaternion rightRotation = transform.rotation * Quaternion.Euler(0, 90, 0);
+                Vector3 rightDir = transform.right; // Get the right direction before rotating
+                
+                exitSequence.Append(transform.DORotateQuaternion(rightRotation, 0.05f).SetEase(Ease.Linear));
+                
+                Vector3 exitTarget = transform.position + rightDir * 25f;
+                exitSequence.Append(transform.DOMove(exitTarget, 0.25f).SetEase(Ease.InQuad));
+                
+                exitSequence.OnComplete(() => Destroy(gameObject));
+                exitSequence.SetLink(gameObject);
+                return;
+            }
+
             VehicleController vc = VehicleController.instance;
             if (vc != null && vc.transitCube != null)
             {
@@ -508,6 +535,16 @@ namespace TJ.Scripts
             if (other.CompareTag("ExitPoint") && isFull && !_isExiting)
             {
                 _hitExitPoint = true;
+                Game.ConveyorFollowerBoard board = transform.parent?.GetComponent<Game.ConveyorFollowerBoard>();
+                if (board != null)
+                {
+                    board.ForceCompletePath();
+                }
+                return;
+            }
+            if (other.CompareTag("ExitPointRight") && isFull && !_isExiting)
+            {
+                _hitExitPointRight = true;
                 Game.ConveyorFollowerBoard board = transform.parent?.GetComponent<Game.ConveyorFollowerBoard>();
                 if (board != null)
                 {
@@ -822,7 +859,7 @@ namespace TJ.Scripts
             Vector3 currentPos = startPos;
             Vector3[] points = new Vector3[] { ptB, ptC, ptD, ptE };
 
-            float speed = 65f; // Move a bit faster when going to storage
+            float speed = 30f; // Move a bit faster when going to storage
             float turnDuration = 0.04f;
 
             for (int i = 0; i < points.Length; i++)
@@ -903,7 +940,7 @@ namespace TJ.Scripts
             isMovingForward = false;
             canCollideWitOtherVehicle = false;
 
-            float speed = 65f;
+            float speed = 30f;
             float turnDur = 0.04f;
 
             _jumpSequence = DOTween.Sequence();
