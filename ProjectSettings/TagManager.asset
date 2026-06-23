@@ -11,6 +11,9 @@ TagManager:
   - WallLeft
   - WallRight
   - Transit
+  - Upborder
+  - Down
+  - ExitPoint
   layers:
   - Default
   - TransparentFX

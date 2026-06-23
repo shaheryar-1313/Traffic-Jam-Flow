@@ -10,10 +10,17 @@ namespace Game
     {
         private static T s_Instance;
 
+        private static bool s_applicationIsQuitting = false;
+
         public static T Instance
         {
             get
             {
+                if (s_applicationIsQuitting)
+                {
+                    return null;
+                }
+
                 if (s_Instance == null)
                 {
                     s_Instance = FindFirstObjectByType<T>();
@@ -30,31 +37,35 @@ namespace Game
 
         private void Awake()
         {
-            bool destroyed = false;
-
-            if (s_Instance == null)
+            if (s_Instance != null && s_Instance != this)
             {
-                s_Instance = this as T;
-            }
-            else
-            {
-                destroyed = true;
                 if (Application.isPlaying)
                 {
-                    Destroy(gameObject);
+                    Destroy(s_Instance.gameObject);
                 }
                 else
                 {
-                    DestroyImmediate(gameObject);
+                    DestroyImmediate(s_Instance.gameObject);
                 }
             }
 
-            if (!destroyed)
-            {
-                OnPostAwake();
-            }
+            s_Instance = this as T;
+            OnPostAwake();
         }
 
         protected virtual void OnPostAwake() => _ = 0;
+
+        protected virtual void OnDestroy()
+        {
+            if (s_Instance == this)
+            {
+                s_Instance = null;
+            }
+        }
+
+        protected virtual void OnApplicationQuit()
+        {
+            s_applicationIsQuitting = true;
+        }
     }
 }

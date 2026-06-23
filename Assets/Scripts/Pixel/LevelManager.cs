@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Sirenix.OdinInspector;
 using UnityEngine;
@@ -42,8 +42,9 @@ namespace Game
                 CurrentLevelIndex++;
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
+            base.OnDestroy();
             EventBus<GameplayStateChangedEvent>.Unsubscribe(_gameplayStateChangedEventBinding);
         }
 

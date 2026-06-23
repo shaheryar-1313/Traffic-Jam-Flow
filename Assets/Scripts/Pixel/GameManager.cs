@@ -87,8 +87,9 @@ namespace Game
                 _gameLostPanel = GameObject.Find("Game Lost Panel");
         }
 
-        private void OnDestroy()
+        protected override void OnDestroy()
         {
+            base.OnDestroy();
             EventBus<GameplayStateChangedEvent>.Unsubscribe(_gameplayStateChangedEventBinding);
         }
 

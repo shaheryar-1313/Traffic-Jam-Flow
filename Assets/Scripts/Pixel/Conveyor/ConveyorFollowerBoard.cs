@@ -73,6 +73,18 @@ namespace Game
             IsBoardCompletedPath = true;
         }
 
+        public void ForceCompletePath()
+        {
+            if (_assignedOccupant != null)
+            {
+                if (_assignedOccupant is UnityEngine.Object unityObj && unityObj != null)
+                    _assignedOccupant.ResetParent();
+                _assignedOccupant = null;
+            }
+            _splineFollower.SetPercent(1.0f);
+            OnCompletePath();
+        }
+
         public void PlaceBoardToMachine(int index)
         {
             float gapBetweenBoards = GameConfigs.Instance.gapBetweenBoards;
