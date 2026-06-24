@@ -17,6 +17,7 @@ namespace TJ.Scripts
         private void Awake()
         {
             anim = animGo.GetComponent<Animator>();
+            anim.speed = 0f;
         }
 
         public void ChangeColor(ColorEnum colorEnum)
@@ -31,23 +32,27 @@ namespace TJ.Scripts
         public IEnumerator MoveToSlot1(Vector3 mid, Transform pickpoint, Vector3 point, float delay)
         {
             yield return new WaitForSeconds(delay);
+            anim.speed = 1f;
             transform.DOMove(mid, 0.3f).OnComplete(() =>
             {
                 transform.rotation = pickpoint.rotation;
                 transform.DOMove(point, 0.3f).OnComplete(() =>
                 {
                     anim.SetBool(Walk, false);
+                    anim.speed = 0f;
                 });
             });
         }
         public IEnumerator MoveToSlot2(Vector3 point, float delay)
         {
             yield return new WaitForSeconds(delay);
+            anim.speed = 1f;
             //DOVirtual.DelayedCall(0.2f, () =>
             //{          
             transform.DOMove(point, 0.3f).OnComplete(() =>
             {
                 anim.SetBool(Walk, false);
+                anim.speed = 0f;
             });
             //});
         }
@@ -82,6 +87,7 @@ namespace TJ.Scripts
             // We don't parent immediately so that the passenger doesn't slide with the moving vehicle.
             // Instead, we interpolate in world space towards the seat's current position,
             // and parent once they reach the seat.
+            anim.speed = 1f;
             anim.SetBool(Walk, true);
 
             Vector3 startPos = transform.position;

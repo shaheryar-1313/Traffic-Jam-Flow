@@ -8,8 +8,8 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: Car Jam_Environment Variant
-  m_Shader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
-  m_Parent: {fileID: 3370593207378328486, guid: 3e3498d6233bca540b24663fe8f5db55, type: 3}
+  m_Shader: {fileID: -6465566751694194690, guid: 25e553fa52cc0ce42b0facc0634c721c, type: 3}
+  m_Parent: {fileID: 2100000, guid: 4ac6026672a9b194a949139fa815c4ad, type: 2}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
   m_InvalidKeywords: []
@@ -17,8 +17,7 @@ Material:
   m_EnableInstancingVariants: 0
   m_DoubleSidedGI: 0
   m_CustomRenderQueue: -1
-  stringTagMap:
-    RenderType: Opaque
+  stringTagMap: {}
   disabledShaderPasses:
   - MOTIONVECTORS
   m_LockedProperties: 
@@ -27,12 +26,14 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
-    - _Metallic: 0
-    - _Smoothness: 0
-    m_Colors: []
+    - _Fresnel_Power: -0.41
+    - _GlowStrength: 1
+    - _QueueControl: 0
+    m_Colors:
+    - _EmissionColor: {r: 0.21867214, g: 0.29219812, b: 0.509434, a: 0}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
---- !u!114 &4231184333327307453
+--- !u!114 &7003753542655632336
 MonoBehaviour:
   m_ObjectHideFlags: 11
   m_CorrespondingSourceObject: {fileID: 0}

@@ -32,6 +32,9 @@ namespace TJ.Scripts
         public bool canShuffle = true;
         [Range(0, 1)] public float shuffleIntensity = 0.5f;
 
+        [Header("Player Settings")]
+        [SerializeField] private float _playerScale = 1f;
+
         // Public lists kept for external access (Player.cs references playersInScene)
         public List<Player> playersInScene = new();
         public List<Player> totalPlayerList = new();
@@ -147,6 +150,7 @@ namespace TJ.Scripts
         private Player CreatePlayer(Vector3 position, Transform parent, ColorEnum color)
         {
             GameObject obj = Instantiate(PlayerPrefab, position, Quaternion.identity, parent);
+            obj.transform.localScale = Vector3.one * _playerScale;
             Player plyr = obj.GetComponent<Player>();
             plyr.ChangeColor(color);
             return plyr;
@@ -434,9 +438,14 @@ namespace TJ.Scripts
                 Vector3 targetPos = new Vector3(x, _gridCenterPos.y, z);
 
                 next.gameObject.SetActive(true);
+                next.anim.speed = 1f;
                 next.anim.SetBool(Player.Walk, true);
                 next.transform.DOMove(targetPos, 0.3f)
-                    .OnComplete(() => next.anim.SetBool(Player.Walk, false));
+                    .OnComplete(() => 
+                    {
+                        next.anim.SetBool(Player.Walk, false);
+                        next.anim.speed = 0f;
+                    });
 
                 playersInScene.Add(next);
                 activePlayerList.Add(next);
