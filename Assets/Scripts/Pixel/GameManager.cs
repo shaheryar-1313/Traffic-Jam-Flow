@@ -11,7 +11,7 @@ namespace Game
         [Title("References")]
         [SerializeField] private GameConfigs _gameConfigs;
         [SerializeField] private GameplayController _gameplayController;
-        [SerializeField] private RemoteConfigManager _remoteConfigManager;
+        // [SerializeField] private RemoteConfigManager _remoteConfigManager;
         [SerializeField] private GameObject _gameWonPanel;
         [SerializeField] private GameObject _gameLostPanel;
         [SerializeField] private GameObject _shopPanel;
@@ -67,7 +67,7 @@ namespace Game
 
             IsInitialized = true;
 
-            _remoteConfigManager.Initialize(OnRemoteConfigReady);
+            // _remoteConfigManager.Initialize(OnRemoteConfigReady);
         }
 
         private void OnRemoteConfigReady()

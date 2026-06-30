@@ -22,7 +22,7 @@ public class MainMenuManager : MonoBehaviour
 
     public void OnPlayButtonClicked()
     {
-        SceneManager.LoadScene("Gameplay");
+        SceneManager.LoadScene("Gameplay (UI Design)");
     }
 
     public void OnShopButtonClicked()

@@ -230,17 +230,23 @@ namespace TJ.Scripts
         // Input
         // ════════════════════════════════════════════════════════════════
 
-        private void OnMouseDown()
-        {
-            if (_isExiting) return;
-            if (_isNavigating) return;
+        // ─── Tap / Touch shared logic ────────────────────────────────────
 
-            if (Game.GameManager.Instance != null && Game.GameManager.Instance.IsShopOpen) return;
+        /// <summary>
+        /// Core tap handler shared by OnMouseDown (Unity Editor) and the
+        /// Android touch input path. Returns false if the tap was blocked.
+        /// </summary>
+        private bool HandleVehicleTap()
+        {
+            if (_isExiting) return false;
+            if (_isNavigating) return false;
+
+            if (Game.GameManager.Instance != null && Game.GameManager.Instance.IsShopOpen) return false;
 
             if (UnityEngine.EventSystems.EventSystem.current != null &&
                 UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
-                return;
+                return false;
             }
 
             if (!_isBooked && Game.GameManager.Instance != null && Game.GameManager.Instance.GameplayController != null)
@@ -248,7 +254,7 @@ namespace TJ.Scripts
                 var gc = Game.GameManager.Instance.GameplayController;
                 if (gc.AvailableBoardCount - gc.BookedBoardCount <= 0)
                 {
-                    return;
+                    return false;
                 }
                 gc.BookBoard();
                 _isBooked = true;
@@ -258,7 +264,7 @@ namespace TJ.Scripts
             if (IsInStorage)
             {
                 OnJumpRequest?.Invoke(this);
-                return;
+                return true;
             }
 
             if (Helper.instance)
@@ -277,11 +283,25 @@ namespace TJ.Scripts
                     transform.forward * (hitInfo.distance + 1);
                 movingZdir = transform.DOMove(targetPosition, 0.2f).SetEase(Ease.InQuad).SetUpdate(UpdateType.Fixed);
 
-                return;
+                return true;
             }
 
             MoveCarStraight();
+            return true;
         }
+
+        // ─── Unity Editor input (mouse) ──────────────────────────────────
+
+        /// <summary>Unity Editor / standalone mouse input.</summary>
+        private void OnMouseDown()
+        {
+            HandleVehicleTap();
+        }
+
+        // ─── Android touch input ─────────────────────────────────────────
+        // NOTE: Unity's OnMouseDown() is automatically triggered by touch input
+        // on Android (TouchPhase.Began on a collider), so no separate Update()
+        // touch loop is needed. OnMouseDown() above handles both platforms.
 
 
 

@@ -6,11 +6,8 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
-    path: Assets/Scenes/Main Menu.unity
-    guid: 90e2f9c20d46df34bbb0ee91fa62db0a
-  - enabled: 1
-    path: Assets/Scenes/Gameplay (UI Design).unity
-    guid: 5c774c36c90bd9e46a41b0067c6e598f
+    path: Assets/Scenes/New Scene.unity
+    guid: c2f00c1e01cfb16449d4a156b3544de8
   m_configObjects:
     com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
